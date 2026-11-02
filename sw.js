@@ -1,5 +1,5 @@
 // Offline-Cache für den PDF Vorleser. Bei Änderungen an App-Dateien VERSION erhöhen.
-const VERSION = 'vorleser-v3';
+const VERSION = 'vorleser-v4';
 // Große Laufzeitdateien der neuronalen Stimme ändern sich praktisch nie → eigener Cache,
 // der bei App-Updates erhalten bleibt (nur bei neuer Engine-Version TTS_CACHE erhöhen).
 const TTS_CACHE = 'vorleser-tts-1';

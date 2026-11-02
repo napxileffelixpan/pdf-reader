@@ -72,11 +72,27 @@ button.big{padding:10px 18px}
 .small label{display:flex;align-items:center;gap:6px;cursor:pointer}
 .progress{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
 .progress div{height:100%;width:0;background:var(--accent);transition:width .2s}
+.s .en{text-decoration:underline dotted;text-decoration-color:var(--accent);text-underline-offset:3px}
+.icon-btn{padding:8px 10px}
+/* Einstellungen */
+.sheet{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.35);display:flex;align-items:flex-end;justify-content:center}
+.sheet[hidden]{display:none}
+.sheet-card{background:var(--surface);color:var(--text);width:100%;max-width:560px;max-height:90vh;overflow:auto;border-radius:18px 18px 0 0;padding:16px max(16px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))}
+@media (min-width:600px){.sheet{align-items:center}.sheet-card{border-radius:18px}}
+.sheet-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+.sheet-head h2{font-size:18px;margin:0}
+.sheet h3{font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+.field{display:flex;flex-direction:column;gap:4px;margin:10px 0;font-size:14px;color:var(--muted)}
+.field select{width:100%;color:var(--text)}
+.check{display:flex;align-items:flex-start;gap:10px;margin:8px 0;cursor:pointer}
+.check input{width:20px;height:20px;margin:2px 0 0;accent-color:var(--accent);flex:none}
+.hint{font-size:13px;color:var(--muted);margin:8px 0 12px}
 </style>
 </head>
 <body>
 <header>
   <h1>PDF Vorleser<small id="fname">Keine Datei geladen</small></h1>
+  <button id="openSettings" class="icon-btn" title="Einstellungen" aria-label="Einstellungen"><svg viewBox="0 0 24 24"><path d="M19.4 13a7.5 7.5 0 0 0 0-2l2.1-1.6-2-3.5-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3.3h-4l-.4 2.6a7.6 7.6 0 0 0-1.7 1l-2.5-1-2 3.5L6.6 11a7.5 7.5 0 0 0 0 2l-2.1 1.6 2 3.5 2.5-1a7.6 7.6 0 0 0 1.7 1l.4 2.6h4l.4-2.6a7.6 7.6 0 0 0 1.7-1l2.5 1 2-3.5zM13 15.5a3.5 3.5 0 1 1 0-7 3.5 3.5 0 0 1 0 7z" transform="translate(-1 0)"/></svg></button>
   <span class="btn primary pick">PDF öffnen<input type="file" class="picker" accept="application/pdf,.pdf" aria-label="PDF öffnen"></span>
 </header>
 
@@ -112,6 +128,33 @@ button.big{padding:10px 18px}
   </div>
 </footer>
 
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head"><h2 id="sheetTitle">Einstellungen</h2><button id="closeSettings" aria-label="Schließen">✕</button></div>
+    <h3>Englische Passagen</h3>
+    <label class="check"><input type="checkbox" id="optMix"><span>Englische Passagen mit englischer Stimme vorlesen</span></label>
+    <label class="field">Englische Stimme<select id="optEnVoice"></select></label>
+    <label class="field">Was erkannt wird
+      <select id="optDetect">
+        <option value="sentences">Nur ganze englische Sätze</option>
+        <option value="quotes">Sätze und Zitate in Anführungszeichen</option>
+        <option value="clauses">Zusätzlich Satzteile und Klammern</option>
+      </select>
+    </label>
+    <label class="field">Mindestlänge einer englischen Passage
+      <select id="optMin">
+        <option value="2">ab 2 Wörtern</option>
+        <option value="3">ab 3 Wörtern</option>
+        <option value="5">ab 5 Wörtern</option>
+      </select>
+    </label>
+    <p class="hint">Erkannte englische Stellen sind im Text gepunktet unterstrichen. Einzelne englische Fachbegriffe (z. B. „Setup“) bleiben bewusst bei der deutschen Stimme.</p>
+    <button id="optTest">▶ Probe anhören</button>
+    <h3>Anzeige</h3>
+    <label class="check"><input type="checkbox" id="optFollow"><span>Beim Vorlesen mitscrollen</span></label>
+  </div>
+</div>
+
 <script src="lib/pdf.min.js"></script>
 <script>
 (() => {
@@ -125,6 +168,8 @@ button.big{padding:10px 18px}
     pause: '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>'
   };
   const synth = window.speechSynthesis;
+  // Einstellungen für gemischtsprachige Texte
+  const cfg = Object.assign({ mixLang: true, enVoice: '', detect: 'quotes', minWords: 3 }, store.get('cfg', {}));
 
   let S = [];            // {text, page, el}
   let pageStart = [];    // Seite -> Index erster Satz
@@ -181,6 +226,7 @@ button.big{padding:10px 18px}
     sel.appendChild(gS);
     if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
     else { const de = voices.find(isDe); sel.value = de ? de.voiceURI : (voices[0] ? voices[0].voiceURI : ''); }
+    fillEnVoices();
   }
   function piperLabel(id) { const v = PIPER[id]; return `${v.name}${piperCached[id] ? ' ✓' : ` · ${v.mb} MB Download`}`; }
   function refreshPiperLabels() {
@@ -195,6 +241,35 @@ button.big{padding:10px 18px}
   }
   const curVoice = () => voices.find(v => v.voiceURI === $('voice').value) || null;
   const piperId = () => { const v = $('voice').value; return v.startsWith('piper:') ? v.slice(6) : null; };
+
+  // Englische Stimme für englische Passagen
+  const isEn = v => v.lang.toLowerCase().startsWith('en');
+  const enPref = v => /^en[-_]us/i.test(v.lang) ? 0 : /^en[-_]gb/i.test(v.lang) ? 1 : 2;
+  function enVoices() {
+    return voices.filter(v => isEn(v) && !NOVELTY.test(v.name))
+      .sort((a, b) => voiceRank(a) - voiceRank(b) || enPref(a) - enPref(b) || a.name.localeCompare(b.name));
+  }
+  function enVoice() { const l = enVoices(); return l.find(v => v.voiceURI === cfg.enVoice) || l[0] || null; }
+  function fillEnVoices() {
+    const sel = $('optEnVoice'), list = enVoices();
+    sel.innerHTML = '';
+    const auto = document.createElement('option'); auto.value = '';
+    auto.textContent = list.length ? `Automatisch (${list[0].name})` : 'Keine englische Systemstimme gefunden';
+    sel.appendChild(auto);
+    for (const v of list) { const o = document.createElement('option'); o.value = v.voiceURI; o.textContent = `${v.name} (${v.lang})`; sel.appendChild(o); }
+    sel.value = list.some(v => v.voiceURI === cfg.enVoice) ? cfg.enVoice : '';
+  }
+  // Englische Passagen umleiten? Nicht nötig, wenn die Hauptstimme selbst englisch ist.
+  function enRoute() {
+    if (!cfg.mixLang || !enVoice()) return false;
+    if (!piperId()) { const v = curVoice(); if (v && !isDe(v)) return false; }
+    return true;
+  }
+  function engineFor(seg) {
+    if (seg.lang === 'en' && enRoute()) return { kind: 'sys', voice: enVoice() };
+    return piperId() ? { kind: 'piper' } : { kind: 'sys', voice: curVoice() };
+  }
+
   loadVoices();
   checkPiperCache();
   if (synth) {
@@ -208,9 +283,9 @@ button.big{padding:10px 18px}
   if ('preservesPitch' in player) player.preservesPitch = true; else if ('webkitPreservesPitch' in player) player.webkitPreservesPitch = true;
   let audioUnlocked = false;
   const piper = { id: null, worker: null, ready: null, ok: false, sampleRate: 22050 };
-  const audioCache = new Map();   // Satzindex -> Objekt-URL | {error}
-  const waiters = new Map();      // Satzindex -> [{res, rej}]
-  let inflight = null;            // {g, i} des gerade berechneten Satzes
+  const audioCache = new Map();   // Schlüssel "Satz:Teil" -> Objekt-URL | {error}
+  const waiters = new Map();      // Schlüssel -> {text, list:[{res, rej}]}
+  let inflight = null;            // {g, key} des gerade berechneten Teilstücks
   let docGen = 0;                 // wird bei jeder neuen PDF erhöht
 
   function pcm2wav(pcm, sr) {
@@ -251,7 +326,7 @@ button.big{padding:10px 18px}
   function dropAudio() {
     for (const u of audioCache.values()) if (typeof u === 'string') URL.revokeObjectURL(u);
     audioCache.clear();
-    for (const ws of waiters.values()) ws.forEach(w => w.rej(new Error('abgebrochen')));
+    for (const w of waiters.values()) w.list.forEach(x => x.rej(new Error('abgebrochen')));
     waiters.clear();
   }
   function resetPiper() {
@@ -296,35 +371,54 @@ button.big{padding:10px 18px}
     const m = e.data;
     inflight = null;
     if (!m.id || m.id.g !== docGen) { pump(); return; }
-    const i = m.id.i, ws = waiters.get(i) || [];
+    const key = m.id.key, w = waiters.get(key), list = w ? w.list : [];
     if (m.type === 'audio') {
       const url = URL.createObjectURL(new Blob([pcm2wav(m.pcm, piper.sampleRate)], { type: 'audio/wav' }));
-      audioCache.set(i, url); ws.forEach(w => w.res(url));
+      audioCache.set(key, url); list.forEach(x => x.res(url));
     } else if (m.type === 'error') {
-      audioCache.set(i, { error: m.message }); ws.forEach(w => w.rej(new Error(m.message)));
+      audioCache.set(key, { error: m.message }); list.forEach(x => x.rej(new Error(m.message)));
     }
-    waiters.delete(i);
+    waiters.delete(key);
     prune(); pump();
   }
-  function getAudio(i) {
-    const c = audioCache.get(i);
+  function getAudio(key, text) {
+    const c = audioCache.get(key);
     if (typeof c === 'string') return Promise.resolve(c);
     if (c && c.error) return Promise.reject(new Error(c.error));
-    return new Promise((res, rej) => { if (!waiters.has(i)) waiters.set(i, []); waiters.get(i).push({ res, rej }); pump(); });
+    return new Promise((res, rej) => {
+      if (!waiters.has(key)) waiters.set(key, { text, list: [] });
+      waiters.get(key).list.push({ res, rej }); pump();
+    });
   }
-  function pump() {   // immer nur einen Satz gleichzeitig berechnen – aktueller zuerst, dann die nächsten zwei
+  // Teilstücke, die die neuronale Stimme für die nächsten Sätze braucht (aktueller Satz zuerst)
+  function* neededKeys() {
+    for (const j of [idx, idx + 1, idx + 2]) {
+      if (j < 0 || j >= S.length) continue;
+      const segs = segsOf(j);
+      for (let k = 0; k < segs.length; k++) if (engineFor(segs[k]).kind === 'piper') yield [j + ':' + k, segs[k].speak];
+    }
+  }
+  function pump() {   // immer nur ein Teilstück gleichzeitig berechnen
     if (inflight !== null || !piper.ok) return;
-    for (const j of [idx, idx + 1, idx + 2, ...waiters.keys()]) {
-      if (j >= 0 && j < S.length && !audioCache.has(j)) {
-        inflight = { g: docGen, i: j };
-        piper.worker.postMessage({ type: 'synth', id: inflight, text: S[j].text });
+    const cands = [...waiters].map(([k, w]) => [k, w.text]).concat([...neededKeys()]);
+    for (const [key, text] of cands) {
+      if (!audioCache.has(key)) {
+        inflight = { g: docGen, key };
+        piper.worker.postMessage({ type: 'synth', id: inflight, text });
         return;
       }
     }
   }
+  const keySentence = key => (/^\d+:/.test(key) ? parseInt(key, 10) : null);
   function prune() {   // nur ein kleines Fenster um die aktuelle Position im Speicher halten
-    for (const [i, u] of audioCache) if (i < idx - 1 || i > idx + 4) { if (typeof u === 'string') URL.revokeObjectURL(u); audioCache.delete(i); }
-    for (const [i, ws] of waiters) if (i < idx || i > idx + 4) { ws.forEach(w => w.rej(new Error('abgebrochen'))); waiters.delete(i); }
+    for (const [key, u] of audioCache) {
+      const i = keySentence(key);
+      if (i !== null && (i < idx - 1 || i > idx + 4)) { if (typeof u === 'string') URL.revokeObjectURL(u); audioCache.delete(key); }
+    }
+    for (const [key, w] of waiters) {
+      const i = keySentence(key);
+      if (i !== null && (i < idx || i > idx + 4)) { w.list.forEach(x => x.rej(new Error('abgebrochen'))); waiters.delete(key); }
+    }
   }
 
   /* ---------- Textaufbereitung ---------- */
@@ -355,7 +449,8 @@ button.big{padding:10px 18px}
 
   const ABBR = new Set(['z','b','bzw','ca','vgl','abb','gl','tab','kap','nr','dr','prof','etc','usw','u','d','h','o','i','e','s',
     'al','fig','figs','eq','eqs','ref','refs','sec','resp','approx','vs','bspw','ggf','evtl','inkl','max','min','mio','mrd',
-    'st','str','jh','sog','ff','f','vol','no','pp','et','z.b','d.h','u.a','i.e','e.g','o.ä','u.u','s.o','s.u','bzgl','ebd','hrsg']);
+    'st','str','jh','sog','ff','f','vol','no','pp','et','z.b','d.h','u.a','i.e','e.g','o.ä','u.u','s.o','s.u','bzgl','ebd','hrsg',
+    'engl','dt','lat','franz','griech','ital','span','span','ggü','zzgl','abs','bd','hg','jhd','gem','urspr','eigtl']);
 
   function capLen(s, max = 240) {
     if (s.length <= max) return [s];
@@ -389,12 +484,93 @@ button.big{padding:10px 18px}
         const nextLower = /^[\p{Ll}\d(]/u.test(next);
         if (ABBR.has(last)) continue;                                             // z.B. / vgl. / Abb.
         if (/^\d+$/.test(last) && (nextLower || MONTH.test(next))) continue;      // „3. Mai“, „2. die …“
-        if (/^\p{L}$/u.test(last) && nextLower) continue;                         // Initialen o. Ä.
+        if (/^\p{Ll}/u.test(next)) continue;                                      // Satzanfang ist nie klein → Abkürzung („engl. the …“)
       }
       out.push(...capLen(buf)); buf = '';
     }
     if (buf) out.push(...capLen(buf));
     return out.filter(x => /[\p{L}\d]/u.test(x));
+  }
+
+  /* ---------- Sprache erkennen: Englisch in deutschem Text ---------- */
+  // Nur eindeutige Funktionswörter – nichts, was es auch im Deutschen gibt (in, an, so, was, will, also, …)
+  const EN_WORDS = new Set(('the of and to is are were be been being that this these those with for on at by from as it its ' +
+    'they them their we our you your he she his her him not but or if than which who whom what when where why how would could ' +
+    'should shall can may might must have has had does did done there here into about over under after before between through ' +
+    'during without within only just very more most such other some any each every both few many much own same too again ' +
+    'once i me my us yes our ours whose while because although').split(' '));
+  const DE_WORDS = new Set(('der die das den dem des ein eine einer eines einem einen und ist sind war waren wird werden wurde ' +
+    'wurden nicht auch auf mit für von zu zum zur im ins bei nach über unter durch oder aber wie dass daß noch nur schon sich ' +
+    'sie er wir ihr ich es man kann können muss müssen hat haben hatte seine ihre diese dieser dieses wenn weil als um aus vom ' +
+    'am bis sowie jedoch beim dabei damit dann denn doch etwa hier immer mehr sehr so also gibt sagte heißt').split(' '));
+
+  function langScore(text) {
+    const words = text.toLowerCase().match(/[\p{L}][\p{L}'’]*/gu) || [];
+    let en = 0, de = 0;
+    for (const raw of words) {
+      const w = raw.replace(/['’].*$/, '');
+      if (EN_WORDS.has(w)) en++;
+      if (DE_WORDS.has(w)) de++;
+      if (/n['’]t$|['’](s|re|ve|ll|d|m)$/.test(raw)) en++;
+    }
+    de += (text.match(/[äöüß]/gi) || []).length ? 2 : 0;
+    en += 0.5 * (text.match(/\b[a-z]{3,}(ing|ly)\b/gi) || []).length;
+    return { en, de, words: words.length };
+  }
+  function isEnglish(text) {
+    const r = langScore(text);
+    return r.words >= cfg.minWords && r.en >= 1 && r.en >= 2 * r.de + 1;
+  }
+
+  // Zitate „…“ “…” "…" »…« «…» ‚…‘ ‘…’ und (im Satzteil-Modus) Klammern als eigene Stücke herauslösen
+  const QUOTE_RE = /„[^“”"]{2,}?[“”"]|“[^“”]{2,}?[”“]|"[^"]{2,}?"|»[^«»]{2,}?«|«[^«»]{2,}?»|‚[^‘’]{2,}?[‘’]|‘[^‘’]{2,}?’/g;
+  const PAREN_RE = /\([^()]{2,}\)/g;
+  function splitBy(re, piece) {
+    if (piece.fixed) return [piece];
+    const out = []; let last = 0;
+    for (const m of piece.raw.matchAll(re)) {
+      if (m.index > last) out.push({ raw: piece.raw.slice(last, m.index) });
+      out.push({ raw: m[0], fixed: true });
+      last = m.index + m[0].length;
+    }
+    if (last < piece.raw.length) out.push({ raw: piece.raw.slice(last) });
+    return out;
+  }
+  function splitClauses(piece) {
+    if (piece.fixed) return [piece];
+    return piece.raw.split(/(?<=[,;:–—])(?=\s)/).map(raw => ({ raw }));
+  }
+
+  // Satz -> Teilstücke [{raw, speak, lang}] ; lang 'en' = englische Stimme, null = Hauptstimme
+  function segment(text) {
+    if (!cfg.mixLang) return [{ raw: text, speak: text, lang: null }];
+    let pieces = [{ raw: text }];
+    if (cfg.detect !== 'sentences') pieces = pieces.flatMap(p => splitBy(QUOTE_RE, p));
+    if (cfg.detect === 'clauses') pieces = pieces.flatMap(p => splitBy(PAREN_RE, p)).flatMap(splitClauses);
+    for (const p of pieces) p.lang = isEnglish(p.raw) ? 'en' : null;
+    // Stücke ohne Buchstaben (Satzzeichen, Leerraum) an das vorige anhängen, gleiche Sprache zusammenfassen
+    const out = [];
+    for (const p of pieces) {
+      const prev = out[out.length - 1];
+      if (prev && (prev.lang === p.lang || !/[\p{L}\d]/u.test(p.raw))) prev.raw += p.raw;
+      else if (!prev && !/[\p{L}\d]/u.test(p.raw) && pieces.length > 1) { p.lang = null; out.push(p); }
+      else out.push(p);
+    }
+    for (const p of out) p.speak = p.raw.trim();
+    return out.filter(p => p.raw.length);
+  }
+  function segsOf(i) { const s = S[i]; if (!s.segs) s.segs = segment(s.text); return s.segs; }
+  function renderSentence(i) {
+    const el = S[i].el; el.textContent = '';
+    for (const seg of segsOf(i)) {
+      if (seg.lang === 'en') {   // Leerraum am Rand nicht mit unterstreichen
+        const m = seg.raw.match(/^(\s*)([\s\S]*?)(\s*)$/);
+        if (m[1]) el.appendChild(document.createTextNode(m[1]));
+        const e = document.createElement('span'); e.className = 'en'; e.title = 'Englisch'; e.textContent = m[2]; el.appendChild(e);
+        if (m[3]) el.appendChild(document.createTextNode(m[3]));
+      } else el.appendChild(document.createTextNode(seg.raw));
+    }
+    el.appendChild(document.createTextNode(' '));
   }
 
   /* ---------- PDF laden ---------- */
@@ -425,8 +601,9 @@ button.big{padding:10px 18px}
       const para = document.createElement('p');
       for (const t of splitSentences(text)) {
         const sp = document.createElement('span');
-        sp.className = 's'; sp.textContent = t + ' '; sp.dataset.i = S.length;
-        S.push({ text: t, page: p, el: sp });
+        sp.className = 's'; sp.dataset.i = S.length;
+        S.push({ text: t, page: p, el: sp, segs: null });
+        renderSentence(S.length - 1);
         para.appendChild(sp);
       }
       if (!para.childNodes.length) { para.className = 'empty'; para.textContent = '(kein Text auf dieser Seite)'; }
@@ -455,76 +632,91 @@ button.big{padding:10px 18px}
   }
 
   /* ---------- Wiedergabe ---------- */
-  function speak(i) {
-    if (i >= S.length) { finish(); return; }
-    idx = i; mark(i); savePos();
-    const u = new SpeechSynthesisUtterance(S[i].text);
-    const v = curVoice();
-    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'de-DE';
-    u.rate = parseFloat($('rate').value);
-    const my = token;
+  const rate = () => parseFloat($('rate').value);
+  let synthUnlocked = false;
+
+  // Ein Teilstück mit einer Systemstimme sprechen. fail(msg, fatal) meldet Fehler.
+  function speakSys(text, voice, alive, done, fail) {
+    if (!synth) { fail('Keine Sprachausgabe verfügbar', true); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'de-DE';
+    u.rate = rate();
     u.onstart = () => { errCount = 0; };
-    u.onend = () => { if (playing && my === token) speak(idx + 1); };
+    u.onend = () => { if (alive()) done(); };
     u.onerror = e => {
-      if (!playing || my !== token || e.error === 'interrupted' || e.error === 'canceled') return;
-      if (e.error === 'not-allowed') { pause(); setStatus('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true); return; }
-      if (++errCount >= 3) { pause(); setStatus('Sprachausgabe funktioniert nicht (' + e.error + '). Andere Stimme wählen?', true); return; }
-      speak(idx + 1);
+      if (!alive() || e.error === 'interrupted' || e.error === 'canceled') return;
+      if (e.error === 'not-allowed') fail('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true);
+      else fail('Sprachausgabe funktioniert nicht (' + e.error + ').', false);
     };
     synth.speak(u);
   }
-  async function speakPiper(i) {
-    if (i >= S.length) { finish(); return; }
-    idx = i; mark(i); savePos(); prune();
-    const my = token, id = piperId();
-    try { await ensurePiper(id); }
-    catch (e) {
-      if (playing && my === token && e.message !== 'abgebrochen') { pause(); setStatus('Stimme konnte nicht geladen werden: ' + e.message, true); }
-      return;
-    }
-    if (!playing || my !== token) return;
-    let slow = setTimeout(() => setStatus('Erzeuge Sprache …'), 400), url;
-    try { url = await getAudio(i); }
-    catch (e) {
-      clearTimeout(slow);
-      if (!playing || my !== token || e.message === 'abgebrochen') return;
-      if (++errCount >= 3) { pause(); setStatus('Sprachausgabe fehlgeschlagen: ' + e.message, true); return; }
-      speakPiper(i + 1); return;
-    }
+  // Ein Teilstück mit der neuronalen Stimme sprechen
+  async function speakPiperSeg(key, text, alive, done, fail) {
+    try { await ensurePiper(piperId()); }
+    catch (e) { if (alive() && e.message !== 'abgebrochen') fail('Stimme konnte nicht geladen werden: ' + e.message, true); return; }
+    if (!alive()) return;
+    const slow = setTimeout(() => { if (alive()) setStatus('Erzeuge Sprache …'); }, 400);
+    let url;
+    try { url = await getAudio(key, text); }
+    catch (e) { clearTimeout(slow); if (alive() && e.message !== 'abgebrochen') fail('Sprachausgabe fehlgeschlagen: ' + e.message, false); return; }
     clearTimeout(slow);
-    if (!playing || my !== token) return;
+    if (!alive()) return;
     if ($('status').textContent === 'Erzeuge Sprache …') setStatus('');
     pump();
     player.src = url;
     player.playbackRate = rate();
-    player.onended = () => { if (playing && my === token) speakPiper(idx + 1); };
+    player.onended = () => { if (alive()) done(); };
     player.play().then(() => { errCount = 0; }).catch(err => {
-      if (!playing || my !== token) return;
-      if (err && err.name === 'NotAllowedError') { pause(); setStatus('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true); }
+      if (alive() && err && err.name === 'NotAllowedError') fail('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true);
     });
   }
-  const rate = () => parseFloat($('rate').value);
+  function speakSeg(seg, key, alive, done, fail) {
+    if (!/[\p{L}\d]/u.test(seg.speak)) { done(); return; }
+    const eng = engineFor(seg);
+    if (eng.kind === 'sys') speakSys(seg.speak, eng.voice, alive, done, fail);
+    else speakPiperSeg(key, seg.speak, alive, done, fail);
+  }
+
+  // Satz i ab Teilstück k vorlesen
+  function speakSentence(i, k = 0) {
+    if (i >= S.length) { finish(); return; }
+    if (k === 0) { idx = i; mark(i); savePos(); prune(); }
+    const segs = segsOf(i);
+    if (k >= segs.length) { speakSentence(i + 1, 0); return; }
+    const my = token, alive = () => playing && my === token;
+    speakSeg(segs[k], i + ':' + k, alive, () => speakSentence(i, k + 1), (msg, fatal) => {
+      if (fatal || ++errCount >= 3) { pause(); setStatus(msg, true); return; }
+      speakSentence(i, k + 1);
+    });
+  }
+
+  // iOS: Audio und Sprachausgabe müssen einmal innerhalb eines Tipp-Ereignisses gestartet werden
+  function unlockOutputs() {
+    if (piperId()) unlockAudio();
+    if (synth && !synthUnlocked && piperId() && enRoute()) {
+      synthUnlocked = true;
+      const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u);
+    }
+  }
+  function startAt(i) {
+    const my = token;
+    const busy = synth && (synth.speaking || synth.pending);
+    if (busy) synth.cancel();
+    player.pause();
+    if (busy) setTimeout(() => { if (playing && my === token) speakSentence(i); }, 60);
+    else speakSentence(i);   // synchron im Tipp-Ereignis – iOS Safari verlangt das für die erste Sprachausgabe
+  }
 
   function play() {
     if (!S.length) return;
-    if (piperId()) {
-      playing = true; token++; errCount = 0;
-      unlockAudio();
-      if (synth) synth.cancel();
-      speakPiper(idx);
-      keepAwake(true); updateUI();
-      return;
-    }
-    if (!synth) return;
+    playing = true; token++; errCount = 0;
+    const busy = synth && (synth.speaking || synth.pending);
+    if (busy) synth.cancel();
+    unlockOutputs();
+    const my = token;
     player.pause();
-    playing = true; token++;
-    if (synth.speaking || synth.pending) {
-      synth.cancel();
-      const my = token;
-      setTimeout(() => { if (playing && my === token) speak(idx); }, 60);
-    } else {
-      speak(idx);   // synchron im Tipp-Ereignis – iOS Safari verlangt das für die erste Sprachausgabe
-    }
+    if (busy) setTimeout(() => { if (playing && my === token) speakSentence(idx); }, 60);
+    else speakSentence(idx);
     keepAwake(true); updateUI();
   }
   function pause() {
@@ -537,17 +729,23 @@ button.big{padding:10px 18px}
   function jump(i) {
     if (!S.length) return;
     i = Math.max(0, Math.min(S.length - 1, i));
-    idx = i; mark(i); savePos();
-    if (piperId()) {
-      prune(); pump();
-      if (playing) { token++; player.pause(); speakPiper(i); }
-      return;
-    }
-    if (playing) {
-      token++; synth.cancel();
-      const my = token;
-      setTimeout(() => { if (playing && my === token) speak(i); }, 60);
-    }
+    idx = i; mark(i); savePos(); prune(); pump();
+    if (playing) { token++; startAt(i); }
+  }
+
+  // Probe mit den aktuellen Einstellungen
+  const SAMPLE = 'Im Paper heißt es: „The results clearly show a strong dependence on the laser intensity.“ Das bestätigt unsere Messung.';
+  function preview() {
+    pause();
+    const my = token, alive = () => !playing && my === token;
+    unlockAudio();
+    if (synth && !synthUnlocked) { synthUnlocked = true; const u = new SpeechSynthesisUtterance(' '); u.volume = 0; synth.speak(u); }
+    const segs = segment(SAMPLE);
+    const run = k => {
+      if (k >= segs.length || !alive()) return;
+      speakSeg(segs[k], 'preview:' + k + ':' + JSON.stringify(cfg), alive, () => run(k + 1), msg => setStatus(msg, true));
+    };
+    run(0);
   }
   function savePos() { if (docKey) store.set(docKey, idx); }
 
@@ -639,6 +837,31 @@ button.big{padding:10px 18px}
   $('follow').checked = store.get('follow', true);
   $('follow').addEventListener('change', e => store.set('follow', e.target.checked));
 
+  /* ---------- Einstellungen ---------- */
+  function updateOptState() { for (const id of ['optEnVoice', 'optDetect', 'optMin']) $(id).disabled = !cfg.mixLang; }
+  function openSettings() {
+    $('optMix').checked = cfg.mixLang; $('optDetect').value = cfg.detect; $('optMin').value = String(cfg.minWords);
+    fillEnVoices(); $('optFollow').checked = $('follow').checked; updateOptState();
+    $('sheet').hidden = false;
+  }
+  function closeSettings() { $('sheet').hidden = true; }
+  function saveCfg(resegment) {
+    store.set('cfg', cfg); updateOptState();
+    if (!resegment) return;
+    docGen++; dropAudio();                         // Teilstücke ändern sich → vorberechnetes Audio verwerfen
+    S.forEach((s, i) => { s.segs = null; renderSentence(i); });
+    if (playing) { token++; startAt(idx); } else pump();
+  }
+  $('openSettings').addEventListener('click', openSettings);
+  $('closeSettings').addEventListener('click', closeSettings);
+  $('sheet').addEventListener('click', e => { if (e.target === $('sheet')) closeSettings(); });
+  $('optMix').addEventListener('change', e => { cfg.mixLang = e.target.checked; saveCfg(true); });
+  $('optEnVoice').addEventListener('change', e => { cfg.enVoice = e.target.value; saveCfg(false); });
+  $('optDetect').addEventListener('change', e => { cfg.detect = e.target.value; saveCfg(true); });
+  $('optMin').addEventListener('change', e => { cfg.minWords = +e.target.value; saveCfg(true); });
+  $('optTest').addEventListener('click', preview);
+  $('optFollow').addEventListener('change', e => { $('follow').checked = e.target.checked; store.set('follow', e.target.checked); });
+
   const drop = $('drop');
   window.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
   window.addEventListener('dragleave', e => { if (e.target === document.documentElement || e.target === drop) drop.classList.remove('over'); });
@@ -649,6 +872,7 @@ button.big{padding:10px 18px}
   });
 
   document.addEventListener('keydown', e => {
+    if (!$('sheet').hidden) { if (e.key === 'Escape') closeSettings(); return; }
     if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
     if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
     else if (e.key === 'ArrowRight') jump(idx + 1);
