@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PDF Vorleser</title>
+<meta name="description" content="PDF-Dateien öffnen und vorlesen lassen">
+<meta name="theme-color" content="#f6f5f2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#131416" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Vorleser">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{
+  --bg:#f6f5f2; --surface:#ffffff; --text:#1c1c1e; --muted:#6c6c72; --border:#e2e0db;
+  --accent:#2f6fed; --accent-ink:#ffffff; --hl:#ffe8a3; --hl-ink:#1c1c1e; --err:#c0392b;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#131416; --surface:#1d1e21; --text:#ececef; --muted:#9a9aa3; --border:#2d2e33;
+    --accent:#6f9cff; --accent-ink:#0b0d12; --hl:#5b4a10; --hl-ink:#fff6d6; --err:#ff7b6b;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#131416; --surface:#1d1e21; --text:#ececef; --muted:#9a9aa3; --border:#2d2e33;
+  --accent:#6f9cff; --accent-ink:#0b0d12; --hl:#5b4a10; --hl-ink:#fff6d6; --err:#ff7b6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+header{max-width:780px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 8px max(16px, env(safe-area-inset-left));display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:20px;margin:0;flex:1;min-width:0}
+header h1 small{display:block;font-size:13px;font-weight:400;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+main{max-width:780px;margin:0 auto;padding:0 16px 230px}
+.btn,button,select{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:8px 12px;cursor:pointer}
+.btn.primary,button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+button svg{width:22px;height:22px;fill:currentColor;display:block}
+.drop{border:2px dashed var(--border);border-radius:14px;padding:36px 16px;text-align:center;color:var(--muted);margin:8px 0 16px;transition:border-color .15s,background .15s}
+.drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.status{min-height:1.4em;color:var(--muted);font-size:14px;margin-bottom:8px}
+.status.err{color:var(--err)}
+.page{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.pnum{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+.page p{margin:0;overflow-wrap:anywhere}
+.page p.empty{color:var(--muted);font-style:italic}
+.s{cursor:pointer;border-radius:4px;transition:background .15s}
+.s:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.s.cur{background:var(--hl);color:var(--hl-ink);box-shadow:0 0 0 2px var(--hl)}
+footer{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--border);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+footer .inner{max-width:780px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.row .grow{flex:1;min-width:0}
+button.big{padding:10px 18px}
+#voice,#page{max-width:100%}
+#voice{flex:1;min-width:0}
+.rate{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.rate input{width:120px;accent-color:var(--accent)}
+.small{font-size:13px;color:var(--muted);justify-content:space-between}
+.small label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.progress{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.progress div{height:100%;width:0;background:var(--accent);transition:width .2s}
+</style>
+</head>
+<body>
+<header>
+  <h1>PDF Vorleser<small id="fname">Keine Datei geladen</small></h1>
+  <label class="btn primary" for="file">PDF öffnen</label>
+  <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+</header>
+
+<main>
+  <div id="drop" class="drop">PDF hierher ziehen oder „PDF öffnen“ tippen.<br>Auf einen Satz tippen, um dort weiterzulesen.</div>
+  <div id="status" class="status"></div>
+  <div id="doc"></div>
+</main>
+
+<footer>
+  <div class="inner">
+    <div class="row">
+      <button id="stop" title="Zum Anfang" aria-label="Zum Anfang"><svg viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></svg></button>
+      <button id="prev" title="Vorheriger Satz (←)" aria-label="Vorheriger Satz"><svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg></button>
+      <button id="play" class="primary big" title="Abspielen/Pause (Leertaste)" aria-label="Abspielen"></button>
+      <button id="next" title="Nächster Satz (→)" aria-label="Nächster Satz"><svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5v14l11-7z"/></svg></button>
+      <select id="page" title="Zu Seite springen" aria-label="Seite"></select>
+    </div>
+    <div class="row">
+      <span class="rate">Tempo <input type="range" id="rate" min="0.5" max="2.5" step="0.05" value="1"><output id="rateOut">1.00×</output></span>
+      <select id="voice" aria-label="Stimme"></select>
+    </div>
+    <div class="row small">
+      <label><input type="checkbox" id="follow" checked> Mitscrollen</label>
+      <span id="info"></span>
+    </div>
+    <div class="progress"><div id="prog"></div></div>
+  </div>
+</footer>
+
+<script src="lib/pdf.min.js"></script>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  };
+  const ICON = {
+    play: '<svg viewBox="0 0 24 24"><path d="M7 5v14l12-7z"/></svg>',
+    pause: '<svg viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>'
+  };
+  const synth = window.speechSynthesis;
+
+  let S = [];            // {text, page, el}
+  let pageStart = [];    // Seite -> Index erster Satz
+  let errCount = 0;
+  let idx = 0, playing = false, token = 0, voices = [], docKey = null, wakeLock = null, curEl = null;
+
+  function setStatus(t, err) { const el = $('status'); el.textContent = t || ''; el.classList.toggle('err', !!err); }
+
+  if (typeof pdfjsLib === 'undefined') {
+    setStatus('pdf.js konnte nicht geladen werden – liegt der Ordner „lib“ neben index.html?', true);
+    return;
+  }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdf.worker.min.js';
+  if (!synth) setStatus('Dieser Browser unterstützt keine Sprachausgabe (Web Speech API).', true);
+
+  /* ---------- Stimmen ---------- */
+  function loadVoices() {
+    if (!synth) return;
+    voices = synth.getVoices().slice().sort((a, b) => {
+      const da = a.lang.toLowerCase().startsWith('de') ? 0 : 1, db = b.lang.toLowerCase().startsWith('de') ? 0 : 1;
+      return da - db || a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name);
+    });
+    const sel = $('voice'), keep = sel.value || store.get('voice', null);
+    sel.innerHTML = '';
+    if (!voices.length) { const o = document.createElement('option'); o.textContent = 'Standardstimme'; o.value = ''; sel.appendChild(o); return; }
+    for (const v of voices) {
+      const o = document.createElement('option');
+      o.value = v.voiceURI;
+      o.textContent = `${v.name} (${v.lang})${v.localService ? '' : ' · online'}`;
+      sel.appendChild(o);
+    }
+    if (keep && voices.some(v => v.voiceURI === keep)) sel.value = keep;
+    else { const de = voices.find(v => v.lang.toLowerCase().startsWith('de')); if (de) sel.value = de.voiceURI; }
+  }
+  const curVoice = () => voices.find(v => v.voiceURI === $('voice').value) || null;
+  if (synth) {
+    loadVoices();
+    if (synth.addEventListener) synth.addEventListener('voiceschanged', loadVoices);
+    else synth.onvoiceschanged = loadVoices;
+  }
+
+  /* ---------- Textaufbereitung ---------- */
+  function itemsToText(items) {
+    const lines = []; let cur = '', lastY = null;
+    for (const it of items) {
+      if (typeof it.str !== 'string') continue;
+      const y = it.transform ? it.transform[5] : null;
+      if (cur && lastY !== null && y !== null && Math.abs(y - lastY) > 2) { lines.push(cur); cur = ''; }
+      cur += it.str;
+      if (y !== null && it.str.trim()) lastY = y;
+      if (it.hasEOL) { lines.push(cur); cur = ''; }
+    }
+    if (cur) lines.push(cur);
+    // reine Seitenzahlen / "Seite x von y" verwerfen
+    return lines.filter(l => !/^\s*(\d{1,4}|[ivxlc]{1,6}|(Seite|Page)\s*\d+(\s*(von|of)\s*\d+)?)\s*$/i.test(l)).join('\n');
+  }
+
+  function cleanText(t) {
+    return t.normalize('NFKC')
+      .replace(/(\p{Ll})[-\u00AD]\s*\n\s*(\p{Ll})/gu, '$1$2')  // Silbentrennung am Zeilenende
+      .replace(/\u00AD/g, '')
+      .replace(/\s*\n\s*/g, ' ')
+      .replace(/\s+/g, ' ')
+      .replace(/\s+([,.;:!?])/g, '$1')
+      .trim();
+  }
+
+  const ABBR = new Set(['z','b','bzw','ca','vgl','abb','gl','tab','kap','nr','dr','prof','etc','usw','u','d','h','o','i','e','s',
+    'al','fig','figs','eq','eqs','ref','refs','sec','resp','approx','vs','bspw','ggf','evtl','inkl','max','min','mio','mrd',
+    'st','str','jh','sog','ff','f','vol','no','pp','et','z.b','d.h','u.a','i.e','e.g','o.ä','u.u','s.o','s.u','bzgl','ebd','hrsg']);
+
+  function capLen(s, max = 240) {
+    if (s.length <= max) return [s];
+    const out = []; let rest = s;
+    while (rest.length > max) {
+      const win = rest.slice(0, max);
+      let cut = -1;
+      for (const re of [/[;:,)]\s(?!.*[;:,)]\s)/, /\s(?!.*\s)/]) {
+        const m = win.match(re);
+        if (m && m.index > max * 0.4) { cut = m.index + 1; break; }
+      }
+      if (cut < 0) cut = max;
+      out.push(rest.slice(0, cut).trim());
+      rest = rest.slice(cut).trim();
+    }
+    if (rest) out.push(rest);
+    return out;
+  }
+
+  function splitSentences(t) {
+    if (!t) return [];
+    const raw = t.split(/(?<=[.!?…])\s+/);
+    const MONTH = /^(Jan|Feb|März|Mär|Apr|Mai|Jun|Jul|Aug|Sep|Okt|Nov|Dez|Jahrh)/;
+    const out = []; let buf = '';
+    for (let k = 0; k < raw.length; k++) {
+      const r = raw[k], next = raw[k + 1] || '';
+      buf = buf ? buf + ' ' + r : r;
+      const m = buf.match(/(\S+)\.$/);
+      if (m && next && buf.length < 400) {
+        const last = m[1].toLowerCase().replace(/^[^\p{L}\d]+/u, '');
+        const nextLower = /^[\p{Ll}\d(]/u.test(next);
+        if (ABBR.has(last)) continue;                                             // z.B. / vgl. / Abb.
+        if (/^\d+$/.test(last) && (nextLower || MONTH.test(next))) continue;      // „3. Mai“, „2. die …“
+        if (/^\p{L}$/u.test(last) && nextLower) continue;                         // Initialen o. Ä.
+      }
+      out.push(...capLen(buf)); buf = '';
+    }
+    if (buf) out.push(...capLen(buf));
+    return out.filter(x => /[\p{L}\d]/u.test(x));
+  }
+
+  /* ---------- PDF laden ---------- */
+  async function loadPdf(file) {
+    if (!file) return;
+    pause();
+    $('fname').textContent = file.name;
+    setStatus('Lade PDF …');
+    let pdf;
+    try { pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise; }
+    catch (e) { setStatus('PDF konnte nicht geöffnet werden: ' + (e && e.message ? e.message : e), true); return; }
+
+    S = []; pageStart = []; idx = 0; curEl = null;
+    const docEl = $('doc'); docEl.innerHTML = '';
+    const frag = document.createDocumentFragment();
+    const pageSel = $('page'); pageSel.innerHTML = '';
+
+    for (let p = 1; p <= pdf.numPages; p++) {
+      setStatus(`Lese Seite ${p} / ${pdf.numPages} …`);
+      const page = await pdf.getPage(p);
+      const tc = await page.getTextContent();
+      const text = cleanText(itemsToText(tc.items));
+      pageStart[p] = S.length;
+
+      const sec = document.createElement('section'); sec.className = 'page';
+      const h = document.createElement('div'); h.className = 'pnum'; h.textContent = 'Seite ' + p; sec.appendChild(h);
+      const para = document.createElement('p');
+      for (const t of splitSentences(text)) {
+        const sp = document.createElement('span');
+        sp.className = 's'; sp.textContent = t + ' '; sp.dataset.i = S.length;
+        S.push({ text: t, page: p, el: sp });
+        para.appendChild(sp);
+      }
+      if (!para.childNodes.length) { para.className = 'empty'; para.textContent = '(kein Text auf dieser Seite)'; }
+      sec.appendChild(para); frag.appendChild(sec);
+
+      const o = document.createElement('option'); o.value = p; o.textContent = `Seite ${p}/${pdf.numPages}`; pageSel.appendChild(o);
+    }
+    docEl.appendChild(frag);
+    $('drop').style.display = 'none';
+
+    if (!S.length) { setStatus('Kein Text gefunden – vermutlich eine gescannte PDF ohne Textebene (OCR nötig).', true); updateUI(); return; }
+
+    docKey = 'pdfpos:' + file.name + ':' + file.size;
+    const saved = store.get(docKey, 0);
+    if (saved > 0 && saved < S.length) { idx = saved; setStatus(`Fortsetzen bei Seite ${S[saved].page} – ▶ drücken.`); }
+    else setStatus(`${pdf.numPages} Seiten, ${S.length} Abschnitte. ▶ drücken zum Vorlesen.`);
+    mark(idx, true);
+    updateUI();
+  }
+
+  /* ---------- Wiedergabe ---------- */
+  function speak(i) {
+    if (i >= S.length) { finish(); return; }
+    idx = i; mark(i); savePos();
+    const u = new SpeechSynthesisUtterance(S[i].text);
+    const v = curVoice();
+    if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'de-DE';
+    u.rate = parseFloat($('rate').value);
+    const my = token;
+    u.onstart = () => { errCount = 0; };
+    u.onend = () => { if (playing && my === token) speak(idx + 1); };
+    u.onerror = e => {
+      if (!playing || my !== token || e.error === 'interrupted' || e.error === 'canceled') return;
+      if (e.error === 'not-allowed') { pause(); setStatus('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true); return; }
+      if (++errCount >= 3) { pause(); setStatus('Sprachausgabe funktioniert nicht (' + e.error + '). Andere Stimme wählen?', true); return; }
+      speak(idx + 1);
+    };
+    synth.speak(u);
+  }
+  function play() {
+    if (!synth || !S.length) return;
+    playing = true; token++;
+    if (synth.speaking || synth.pending) {
+      synth.cancel();
+      const my = token;
+      setTimeout(() => { if (playing && my === token) speak(idx); }, 60);
+    } else {
+      speak(idx);   // synchron im Tipp-Ereignis – iOS Safari verlangt das für die erste Sprachausgabe
+    }
+    keepAwake(true); updateUI();
+  }
+  function pause() {
+    playing = false; token++;
+    if (synth) synth.cancel();
+    keepAwake(false); updateUI();
+  }
+  function finish() { pause(); setStatus('Fertig vorgelesen.'); }
+  function jump(i) {
+    if (!S.length) return;
+    i = Math.max(0, Math.min(S.length - 1, i));
+    idx = i; mark(i); savePos();
+    if (playing) {
+      token++; synth.cancel();
+      const my = token;
+      setTimeout(() => { if (playing && my === token) speak(i); }, 60);
+    }
+  }
+  function savePos() { if (docKey) store.set(docKey, idx); }
+
+  function mark(i, instant) {
+    if (curEl) curEl.classList.remove('cur');
+    curEl = S[i] ? S[i].el : null;
+    if (curEl) {
+      curEl.classList.add('cur');
+      if ($('follow').checked) curEl.scrollIntoView({ block: 'center', behavior: instant ? 'auto' : 'smooth' });
+      $('page').value = S[i].page;
+    }
+    $('info').textContent = S.length ? `Seite ${S[i].page} · ${i + 1} / ${S.length}` : '';
+    $('prog').style.width = S.length ? ((i + 1) / S.length * 100) + '%' : '0';
+  }
+
+  function updateUI() {
+    const has = S.length > 0;
+    $('play').innerHTML = playing ? ICON.pause : ICON.play;
+    $('play').setAttribute('aria-label', playing ? 'Pause' : 'Abspielen');
+    for (const id of ['play', 'prev', 'next', 'stop', 'page']) $(id).disabled = !has;
+  }
+
+  async function keepAwake(on) {
+    try {
+      if (on && 'wakeLock' in navigator && !wakeLock) {
+        wakeLock = await navigator.wakeLock.request('screen');
+        wakeLock.addEventListener('release', () => { wakeLock = null; });
+      } else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+    } catch (e) {}
+  }
+
+  /* ---------- Events ---------- */
+  $('file').addEventListener('change', e => { loadPdf(e.target.files[0]); e.target.value = ''; });
+  $('play').addEventListener('click', () => playing ? pause() : play());
+  $('prev').addEventListener('click', () => jump(idx - 1));
+  $('next').addEventListener('click', () => jump(idx + 1));
+  $('stop').addEventListener('click', () => { pause(); jump(0); });
+  $('page').addEventListener('change', e => { const p = +e.target.value; if (pageStart[p] !== undefined) jump(Math.min(pageStart[p], S.length - 1)); });
+  $('doc').addEventListener('click', e => { const s = e.target.closest('.s'); if (s) jump(+s.dataset.i); });
+
+  const rateInit = store.get('rate', 1);
+  $('rate').value = rateInit; $('rateOut').textContent = (+rateInit).toFixed(2) + '×';
+  $('rate').addEventListener('input', e => { $('rateOut').textContent = (+e.target.value).toFixed(2) + '×'; });
+  $('rate').addEventListener('change', e => { store.set('rate', +e.target.value); if (playing) jump(idx); });
+  $('voice').addEventListener('change', e => { store.set('voice', e.target.value); if (playing) jump(idx); });
+  $('follow').checked = store.get('follow', true);
+  $('follow').addEventListener('change', e => store.set('follow', e.target.checked));
+
+  const drop = $('drop');
+  drop.addEventListener('click', () => $('file').click());
+  window.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
+  window.addEventListener('dragleave', e => { if (e.target === document.documentElement || e.target === drop) drop.classList.remove('over'); });
+  window.addEventListener('drop', e => {
+    e.preventDefault(); drop.classList.remove('over');
+    const f = [...(e.dataTransfer.files || [])].find(f => f.type === 'application/pdf' || /\.pdf$/i.test(f.name));
+    if (f) loadPdf(f);
+  });
+
+  document.addEventListener('keydown', e => {
+    if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+    if (e.code === 'Space') { e.preventDefault(); playing ? pause() : play(); }
+    else if (e.key === 'ArrowRight') jump(idx + 1);
+    else if (e.key === 'ArrowLeft') jump(idx - 1);
+  });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && playing) keepAwake(true); });
+  window.addEventListener('beforeunload', () => { if (synth) synth.cancel(); });
+
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+
+  updateUI();
+})();
+</script>
+</body>
+</html>
