@@ -61,9 +61,13 @@ footer .inner{max-width:780px;margin:0 auto;display:flex;flex-direction:column;g
 .row .grow{flex:1;min-width:0}
 button.big{padding:10px 18px}
 #voice,#page{max-width:100%}
-#voice{flex:1;min-width:0}
-.rate{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
-.rate input{width:120px;accent-color:var(--accent)}
+#voice{flex:1;min-width:0;width:100%}
+.chips{display:flex;gap:6px;flex-wrap:nowrap}
+.chips button{padding:6px 0;min-width:48px;font-size:14px;border-radius:999px;font-variant-numeric:tabular-nums}
+.chips button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.rate{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);flex:1 1 150px;min-width:150px}
+.rate input{flex:1;min-width:0;accent-color:var(--accent)}
+.rate output{min-width:3.6em;text-align:right;font-variant-numeric:tabular-nums}
 .small{font-size:13px;color:var(--muted);justify-content:space-between}
 .small label{display:flex;align-items:center;gap:6px;cursor:pointer}
 .progress{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
@@ -92,7 +96,12 @@ button.big{padding:10px 18px}
       <select id="page" title="Zu Seite springen" aria-label="Seite"></select>
     </div>
     <div class="row">
-      <span class="rate">Tempo <input type="range" id="rate" min="0.5" max="2.5" step="0.05" value="1"><output id="rateOut">1.00×</output></span>
+      <div class="chips" id="chips" role="group" aria-label="Tempo-Voreinstellungen">
+        <button data-rate="0.5">0.5×</button><button data-rate="0.75">0.75×</button><button data-rate="1">1×</button><button data-rate="1.25">1.25×</button><button data-rate="1.5">1.5×</button>
+      </div>
+      <span class="rate"><input type="range" id="rate" min="0.5" max="2.5" step="0.05" value="1" aria-label="Tempo"><output id="rateOut">1.00×</output></span>
+    </div>
+    <div class="row">
       <select id="voice" aria-label="Stimme"></select>
     </div>
     <div class="row small">
@@ -132,29 +141,190 @@ button.big{padding:10px 18px}
   if (!synth) setStatus('Dieser Browser unterstützt keine Sprachausgabe (Web Speech API).', true);
 
   /* ---------- Stimmen ---------- */
+  // Neuronale Piper-Stimmen: laufen offline im Browser, Modell wird einmalig geladen und gespeichert
+  const PIPER = {
+    'de_DE-thorsten-medium': { name: 'Thorsten – Deutsch, sehr natürlich', path: 'de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx', mb: 63 },
+    'de_DE-kerstin-low':     { name: 'Kerstin – Deutsch, weiblich',        path: 'de/de_DE/kerstin/low/de_DE-kerstin-low.onnx',         mb: 63 }
+  };
+  const HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/';
+  const MODEL_CACHE = 'piper-models-v1';
+  const piperCached = {};
+
+  const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Kathy|Ralph|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/;
+  function voiceRank(v) {
+    const s = (v.name + ' ' + v.voiceURI).toLowerCase();
+    if (/premium/.test(s)) return 0;
+    if (/enhanced|erweitert|natural|neural|online/.test(s)) return 1;
+    if (NOVELTY.test(v.name)) return 3;
+    return 2;
+  }
+  const isDe = v => v.lang.toLowerCase().startsWith('de');
+
   function loadVoices() {
-    if (!synth) return;
-    voices = synth.getVoices().slice().sort((a, b) => {
-      const da = a.lang.toLowerCase().startsWith('de') ? 0 : 1, db = b.lang.toLowerCase().startsWith('de') ? 0 : 1;
-      return da - db || a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name);
-    });
+    voices = synth ? synth.getVoices().slice().sort((a, b) =>
+      (isDe(a) ? 0 : 1) - (isDe(b) ? 0 : 1) || voiceRank(a) - voiceRank(b) || a.lang.localeCompare(b.lang) || a.name.localeCompare(b.name)) : [];
     const sel = $('voice'), keep = sel.value || store.get('voice', null);
     sel.innerHTML = '';
-    if (!voices.length) { const o = document.createElement('option'); o.textContent = 'Standardstimme'; o.value = ''; sel.appendChild(o); return; }
+    const gN = document.createElement('optgroup'); gN.label = 'Neuronale Stimmen (offline, einmaliger Download)';
+    for (const [id, v] of Object.entries(PIPER)) {
+      const o = document.createElement('option'); o.value = 'piper:' + id; o.textContent = piperLabel(id); gN.appendChild(o);
+    }
+    sel.appendChild(gN);
+    const gS = document.createElement('optgroup'); gS.label = 'Systemstimmen';
+    if (!voices.length) { const o = document.createElement('option'); o.textContent = 'Standardstimme'; o.value = ''; gS.appendChild(o); }
     for (const v of voices) {
       const o = document.createElement('option');
       o.value = v.voiceURI;
       o.textContent = `${v.name} (${v.lang})${v.localService ? '' : ' · online'}`;
-      sel.appendChild(o);
+      gS.appendChild(o);
     }
-    if (keep && voices.some(v => v.voiceURI === keep)) sel.value = keep;
-    else { const de = voices.find(v => v.lang.toLowerCase().startsWith('de')); if (de) sel.value = de.voiceURI; }
+    sel.appendChild(gS);
+    if (keep && [...sel.options].some(o => o.value === keep)) sel.value = keep;
+    else { const de = voices.find(isDe); sel.value = de ? de.voiceURI : (voices[0] ? voices[0].voiceURI : ''); }
+  }
+  function piperLabel(id) { const v = PIPER[id]; return `${v.name}${piperCached[id] ? ' ✓' : ` · ${v.mb} MB Download`}`; }
+  function refreshPiperLabels() {
+    for (const o of $('voice').options) if (o.value.startsWith('piper:')) o.textContent = piperLabel(o.value.slice(6));
+  }
+  async function checkPiperCache() {
+    try {
+      const c = await caches.open(MODEL_CACHE);
+      for (const id in PIPER) piperCached[id] = !!(await c.match(HF + PIPER[id].path));
+      refreshPiperLabels();
+    } catch (e) {}
   }
   const curVoice = () => voices.find(v => v.voiceURI === $('voice').value) || null;
+  const piperId = () => { const v = $('voice').value; return v.startsWith('piper:') ? v.slice(6) : null; };
+  loadVoices();
+  checkPiperCache();
   if (synth) {
-    loadVoices();
     if (synth.addEventListener) synth.addEventListener('voiceschanged', loadVoices);
     else synth.onvoiceschanged = loadVoices;
+  }
+
+  /* ---------- Piper-Engine ---------- */
+  const player = new Audio();
+  player.preload = 'auto';
+  if ('preservesPitch' in player) player.preservesPitch = true; else if ('webkitPreservesPitch' in player) player.webkitPreservesPitch = true;
+  let audioUnlocked = false;
+  const piper = { id: null, worker: null, ready: null, ok: false, sampleRate: 22050 };
+  const audioCache = new Map();   // Satzindex -> Objekt-URL | {error}
+  const waiters = new Map();      // Satzindex -> [{res, rej}]
+  let inflight = null;            // {g, i} des gerade berechneten Satzes
+  let docGen = 0;                 // wird bei jeder neuen PDF erhöht
+
+  function pcm2wav(pcm, sr) {
+    const n = pcm.length, buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+    const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+    w(36, 'data'); v.setUint32(40, n * 2, true);
+    for (let i = 0, p = 44; i < n; i++, p += 2) { const s = Math.max(-1, Math.min(1, pcm[i])); v.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+    return buf;
+  }
+  // iOS gibt Audio erst nach einem play() innerhalb eines Tipp-Ereignisses frei
+  function unlockAudio() {
+    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    player.src = URL.createObjectURL(new Blob([pcm2wav(new Float32Array(1600), 16000)], { type: 'audio/wav' }));
+    player.play().catch(() => {});
+  }
+
+  async function getModelFile(url, onProgress) {
+    let cache = null;
+    try { cache = await caches.open(MODEL_CACHE); const hit = await cache.match(url); if (hit) return await hit.arrayBuffer(); } catch (e) {}
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Download fehlgeschlagen (HTTP ' + r.status + ')');
+    const total = +r.headers.get('Content-Length') || 0;
+    let blob;
+    if (r.body && r.body.getReader && onProgress) {
+      const reader = r.body.getReader(), chunks = []; let got = 0;
+      for (;;) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); got += value.length; onProgress(got, total); }
+      blob = new Blob(chunks);
+    } else blob = await r.blob();
+    if (cache) { try { await cache.put(url, new Response(blob)); } catch (e) {} }
+    return await blob.arrayBuffer();
+  }
+
+  function dropAudio() {
+    for (const u of audioCache.values()) if (typeof u === 'string') URL.revokeObjectURL(u);
+    audioCache.clear();
+    for (const ws of waiters.values()) ws.forEach(w => w.rej(new Error('abgebrochen')));
+    waiters.clear();
+  }
+  function resetPiper() {
+    if (piper.worker) piper.worker.terminate();
+    Object.assign(piper, { id: null, worker: null, ready: null, ok: false });
+    dropAudio(); inflight = null;
+  }
+
+  function ensurePiper(id) {
+    if (piper.id === id && piper.ready) return piper.ready;
+    resetPiper();
+    piper.id = id;
+    const v = PIPER[id];
+    const p = (async () => {
+      try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+      const cfgBuf = await getModelFile(HF + v.path + '.json');
+      const config = JSON.parse(new TextDecoder().decode(cfgBuf));
+      const model = await getModelFile(HF + v.path, (got, total) => {
+        if (piper.id === id) setStatus(`Lade Stimme „${v.name.split(' –')[0]}“ … ${total ? Math.round(got / total * 100) + ' %' : Math.round(got / 1e6) + ' MB'}`);
+      });
+      if (piper.id !== id) throw new Error('abgebrochen');
+      piperCached[id] = true; refreshPiperLabels();
+      setStatus('Stimme wird vorbereitet …');
+      const w = new Worker('lib/tts/piper-worker.js');
+      await new Promise((res, rej) => {
+        w.onmessage = e => { if (e.data.type === 'ready') { piper.sampleRate = e.data.sampleRate; res(); } else if (e.data.type === 'error') rej(new Error(e.data.message)); };
+        w.onerror = e => rej(new Error(e.message || 'Worker konnte nicht starten'));
+        w.postMessage({ type: 'init', model, config }, [model]);
+      });
+      if (piper.id !== id) { w.terminate(); throw new Error('abgebrochen'); }
+      w.onmessage = onWorkerMessage; w.onerror = null;
+      piper.worker = w; piper.ok = true;
+      setStatus(S.length ? `Stimme „${v.name.split(' –')[0]}“ bereit.` : '');
+      pump();
+    })();
+    piper.ready = p;
+    p.catch(() => { if (piper.ready === p) { piper.ready = null; piper.id = null; } });
+    return p;
+  }
+
+  function onWorkerMessage(e) {
+    const m = e.data;
+    inflight = null;
+    if (!m.id || m.id.g !== docGen) { pump(); return; }
+    const i = m.id.i, ws = waiters.get(i) || [];
+    if (m.type === 'audio') {
+      const url = URL.createObjectURL(new Blob([pcm2wav(m.pcm, piper.sampleRate)], { type: 'audio/wav' }));
+      audioCache.set(i, url); ws.forEach(w => w.res(url));
+    } else if (m.type === 'error') {
+      audioCache.set(i, { error: m.message }); ws.forEach(w => w.rej(new Error(m.message)));
+    }
+    waiters.delete(i);
+    prune(); pump();
+  }
+  function getAudio(i) {
+    const c = audioCache.get(i);
+    if (typeof c === 'string') return Promise.resolve(c);
+    if (c && c.error) return Promise.reject(new Error(c.error));
+    return new Promise((res, rej) => { if (!waiters.has(i)) waiters.set(i, []); waiters.get(i).push({ res, rej }); pump(); });
+  }
+  function pump() {   // immer nur einen Satz gleichzeitig berechnen – aktueller zuerst, dann die nächsten zwei
+    if (inflight !== null || !piper.ok) return;
+    for (const j of [idx, idx + 1, idx + 2, ...waiters.keys()]) {
+      if (j >= 0 && j < S.length && !audioCache.has(j)) {
+        inflight = { g: docGen, i: j };
+        piper.worker.postMessage({ type: 'synth', id: inflight, text: S[j].text });
+        return;
+      }
+    }
+  }
+  function prune() {   // nur ein kleines Fenster um die aktuelle Position im Speicher halten
+    for (const [i, u] of audioCache) if (i < idx - 1 || i > idx + 4) { if (typeof u === 'string') URL.revokeObjectURL(u); audioCache.delete(i); }
+    for (const [i, ws] of waiters) if (i < idx || i > idx + 4) { ws.forEach(w => w.rej(new Error('abgebrochen'))); waiters.delete(i); }
   }
 
   /* ---------- Textaufbereitung ---------- */
@@ -238,6 +408,7 @@ button.big{padding:10px 18px}
     catch (e) { setStatus('PDF konnte nicht geöffnet werden: ' + (e && e.message ? e.message : e), true); return; }
 
     S = []; pageStart = []; idx = 0; curEl = null;
+    docGen++; dropAudio();   // Ergebnisse noch laufender Aufträge gehören zum alten Dokument und werden verworfen
     const docEl = $('doc'); docEl.innerHTML = '';
     const frag = document.createDocumentFragment();
     const pageSel = $('page'); pageSel.innerHTML = '';
@@ -274,6 +445,13 @@ button.big{padding:10px 18px}
     else setStatus(`${pdf.numPages} Seiten, ${S.length} Abschnitte. ▶ drücken zum Vorlesen.`);
     mark(idx, true);
     updateUI();
+    try { if ('mediaSession' in navigator && window.MediaMetadata) navigator.mediaSession.metadata = new MediaMetadata({ title: file.name.replace(/\.pdf$/i, ''), artist: 'PDF Vorleser' }); } catch (e) {}
+    const pid = piperId();
+    if (pid && piperCached[pid]) ensurePiper(pid).catch(() => {});      // Stimme schon vorbereiten
+    else if (!pid && (curVoice() ? isDe(curVoice()) : true) && !store.get('hintPiper', false)) {
+      store.set('hintPiper', true);
+      setStatus($('status').textContent + ' Tipp: Unter „Stimme“ gibt es „Thorsten“ – eine deutlich natürlichere deutsche Stimme.');
+    }
   }
 
   /* ---------- Wiedergabe ---------- */
@@ -295,8 +473,50 @@ button.big{padding:10px 18px}
     };
     synth.speak(u);
   }
+  async function speakPiper(i) {
+    if (i >= S.length) { finish(); return; }
+    idx = i; mark(i); savePos(); prune();
+    const my = token, id = piperId();
+    try { await ensurePiper(id); }
+    catch (e) {
+      if (playing && my === token && e.message !== 'abgebrochen') { pause(); setStatus('Stimme konnte nicht geladen werden: ' + e.message, true); }
+      return;
+    }
+    if (!playing || my !== token) return;
+    let slow = setTimeout(() => setStatus('Erzeuge Sprache …'), 400), url;
+    try { url = await getAudio(i); }
+    catch (e) {
+      clearTimeout(slow);
+      if (!playing || my !== token || e.message === 'abgebrochen') return;
+      if (++errCount >= 3) { pause(); setStatus('Sprachausgabe fehlgeschlagen: ' + e.message, true); return; }
+      speakPiper(i + 1); return;
+    }
+    clearTimeout(slow);
+    if (!playing || my !== token) return;
+    if ($('status').textContent === 'Erzeuge Sprache …') setStatus('');
+    pump();
+    player.src = url;
+    player.playbackRate = rate();
+    player.onended = () => { if (playing && my === token) speakPiper(idx + 1); };
+    player.play().then(() => { errCount = 0; }).catch(err => {
+      if (!playing || my !== token) return;
+      if (err && err.name === 'NotAllowedError') { pause(); setStatus('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true); }
+    });
+  }
+  const rate = () => parseFloat($('rate').value);
+
   function play() {
-    if (!synth || !S.length) return;
+    if (!S.length) return;
+    if (piperId()) {
+      playing = true; token++; errCount = 0;
+      unlockAudio();
+      if (synth) synth.cancel();
+      speakPiper(idx);
+      keepAwake(true); updateUI();
+      return;
+    }
+    if (!synth) return;
+    player.pause();
     playing = true; token++;
     if (synth.speaking || synth.pending) {
       synth.cancel();
@@ -310,6 +530,7 @@ button.big{padding:10px 18px}
   function pause() {
     playing = false; token++;
     if (synth) synth.cancel();
+    player.pause();
     keepAwake(false); updateUI();
   }
   function finish() { pause(); setStatus('Fertig vorgelesen.'); }
@@ -317,6 +538,11 @@ button.big{padding:10px 18px}
     if (!S.length) return;
     i = Math.max(0, Math.min(S.length - 1, i));
     idx = i; mark(i); savePos();
+    if (piperId()) {
+      prune(); pump();
+      if (playing) { token++; player.pause(); speakPiper(i); }
+      return;
+    }
     if (playing) {
       token++; synth.cancel();
       const my = token;
@@ -342,6 +568,7 @@ button.big{padding:10px 18px}
     $('play').innerHTML = playing ? ICON.pause : ICON.play;
     $('play').setAttribute('aria-label', playing ? 'Pause' : 'Abspielen');
     for (const id of ['play', 'prev', 'next', 'stop', 'page']) $(id).disabled = !has;
+    try { if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused'; } catch (e) {}
   }
 
   async function keepAwake(on) {
@@ -363,11 +590,52 @@ button.big{padding:10px 18px}
   $('page').addEventListener('change', e => { const p = +e.target.value; if (pageStart[p] !== undefined) jump(Math.min(pageStart[p], S.length - 1)); });
   $('doc').addEventListener('click', e => { const s = e.target.closest('.s'); if (s) jump(+s.dataset.i); });
 
-  const rateInit = store.get('rate', 1);
-  $('rate').value = rateInit; $('rateOut').textContent = (+rateInit).toFixed(2) + '×';
-  $('rate').addEventListener('input', e => { $('rateOut').textContent = (+e.target.value).toFixed(2) + '×'; });
-  $('rate').addEventListener('change', e => { store.set('rate', +e.target.value); if (playing) jump(idx); });
-  $('voice').addEventListener('change', e => { store.set('voice', e.target.value); if (playing) jump(idx); });
+  /* Tempo: Schieberegler + Schnellwahl */
+  function showRate() {
+    const r = rate();
+    $('rateOut').textContent = r.toFixed(2) + '×';
+    for (const b of $('chips').children) b.classList.toggle('on', Math.abs(+b.dataset.rate - r) < 0.001);
+  }
+  function applyRate(restart) {
+    store.set('rate', rate());
+    if (piperId()) player.playbackRate = rate();          // neuronale Stimme: sofort, ohne Neustart
+    else if (restart && playing) jump(idx);               // Systemstimme: Satz mit neuem Tempo neu beginnen
+  }
+  $('rate').value = store.get('rate', 1); showRate();
+  $('rate').addEventListener('input', () => { showRate(); if (piperId()) player.playbackRate = rate(); });
+  $('rate').addEventListener('change', () => applyRate(true));
+  $('chips').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $('rate').value = b.dataset.rate; showRate(); applyRate(true);
+  });
+
+  $('voice').addEventListener('change', e => {
+    store.set('voice', e.target.value);
+    const id = piperId();
+    const wasPlaying = playing;
+    if (wasPlaying) pause();
+    if (id) {
+      ensurePiper(id).catch(err => { if (err.message !== 'abgebrochen') setStatus('Stimme konnte nicht geladen werden: ' + err.message, true); });
+    } else {
+      resetPiper();
+      if ($('status').textContent.startsWith('Lade Stimme')) setStatus('');
+    }
+    if (wasPlaying) play();
+  });
+
+  /* Sperrbildschirm-/Kopfhörer-Steuerung */
+  if ('mediaSession' in navigator) {
+    const ms = navigator.mediaSession;
+    for (const [a, f] of [['play', () => play()], ['pause', () => pause()], ['nexttrack', () => jump(idx + 1)], ['previoustrack', () => jump(idx - 1)]]) {
+      try { ms.setActionHandler(a, f); } catch (e) {}
+    }
+  }
+
+  /* Abstand unten an die Höhe der Bedienleiste anpassen */
+  const fitFooter = () => { document.querySelector('main').style.paddingBottom = (document.querySelector('footer').offsetHeight + 24) + 'px'; };
+  fitFooter();
+  if ('ResizeObserver' in window) new ResizeObserver(fitFooter).observe(document.querySelector('footer'));
+  else window.addEventListener('resize', fitFooter);
   $('follow').checked = store.get('follow', true);
   $('follow').addEventListener('change', e => store.set('follow', e.target.checked));
 
