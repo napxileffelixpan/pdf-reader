@@ -1,5 +1,5 @@
 // Offline-Cache für den PDF Vorleser. Bei Änderungen VERSION erhöhen.
-const VERSION = 'vorleser-v1';
+const VERSION = 'vorleser-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'lib/pdf.min.js', 'lib/pdf.worker.min.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 

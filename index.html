@@ -41,6 +41,10 @@ main{max-width:780px;margin:0 auto;padding:0 16px 230px}
 button:disabled{opacity:.45;cursor:default}
 button svg{width:22px;height:22px;fill:currentColor;display:block}
 .drop{border:2px dashed var(--border);border-radius:14px;padding:36px 16px;text-align:center;color:var(--muted);margin:8px 0 16px;transition:border-color .15s,background .15s}
+.pick{position:relative;overflow:hidden;display:inline-block}
+.drop.pick{display:block}
+/* echtes Dateifeld liegt unsichtbar über dem Button – iOS öffnet die Auswahl nur bei direktem Tipp darauf */
+.pick input[type=file]{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;font-size:100px;margin:0;padding:0}
 .drop.over{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 8%,transparent)}
 .status{min-height:1.4em;color:var(--muted);font-size:14px;margin-bottom:8px}
 .status.err{color:var(--err)}
@@ -69,12 +73,11 @@ button.big{padding:10px 18px}
 <body>
 <header>
   <h1>PDF Vorleser<small id="fname">Keine Datei geladen</small></h1>
-  <label class="btn primary" for="file">PDF öffnen</label>
-  <input type="file" id="file" accept="application/pdf,.pdf" hidden>
+  <span class="btn primary pick">PDF öffnen<input type="file" class="picker" accept="application/pdf,.pdf" aria-label="PDF öffnen"></span>
 </header>
 
 <main>
-  <div id="drop" class="drop">PDF hierher ziehen oder „PDF öffnen“ tippen.<br>Auf einen Satz tippen, um dort weiterzulesen.</div>
+  <div id="drop" class="drop pick">Hier tippen, um eine PDF auszuwählen – oder PDF hierher ziehen.<br>Später: auf einen Satz tippen, um dort weiterzulesen.<input type="file" class="picker" accept="application/pdf,.pdf" aria-label="PDF auswählen"></div>
   <div id="status" class="status"></div>
   <div id="doc"></div>
 </main>
@@ -351,7 +354,8 @@ button.big{padding:10px 18px}
   }
 
   /* ---------- Events ---------- */
-  $('file').addEventListener('change', e => { loadPdf(e.target.files[0]); e.target.value = ''; });
+  document.querySelectorAll('.picker').forEach(inp =>
+    inp.addEventListener('change', e => { const f = e.target.files && e.target.files[0]; if (f) loadPdf(f); e.target.value = ''; }));
   $('play').addEventListener('click', () => playing ? pause() : play());
   $('prev').addEventListener('click', () => jump(idx - 1));
   $('next').addEventListener('click', () => jump(idx + 1));
@@ -368,7 +372,6 @@ button.big{padding:10px 18px}
   $('follow').addEventListener('change', e => store.set('follow', e.target.checked));
 
   const drop = $('drop');
-  drop.addEventListener('click', () => $('file').click());
   window.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('over'); });
   window.addEventListener('dragleave', e => { if (e.target === document.documentElement || e.target === drop) drop.classList.remove('over'); });
   window.addEventListener('drop', e => {
