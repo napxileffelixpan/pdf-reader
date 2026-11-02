@@ -150,6 +150,15 @@ button.big{padding:10px 18px}
     </label>
     <p class="hint">Erkannte englische Stellen sind im Text gepunktet unterstrichen. Einzelne englische Fachbegriffe (z. B. „Setup“) bleiben bewusst bei der deutschen Stimme.</p>
     <button id="optTest">▶ Probe anhören</button>
+    <h3>Supertonic-Stimme</h3>
+    <label class="field">Sprecher<select id="optStVoice"></select></label>
+    <label class="field">Qualität
+      <select id="optStSteps">
+        <option value="5">Schnell (5 Schritte)</option>
+        <option value="8">Hoch (8 Schritte)</option>
+      </select>
+    </label>
+    <p class="hint">Gilt, wenn „Supertonic“ als Stimme gewählt ist. Englische Passagen liest dann dieselbe Stimme auf Englisch. „Hoch“ braucht ein schnelles Gerät, sonst entstehen Pausen zwischen den Sätzen.</p>
     <h3>Anzeige</h3>
     <label class="check"><input type="checkbox" id="optFollow"><span>Beim Vorlesen mitscrollen</span></label>
   </div>
@@ -169,7 +178,7 @@ button.big{padding:10px 18px}
   };
   const synth = window.speechSynthesis;
   // Einstellungen für gemischtsprachige Texte
-  const cfg = Object.assign({ mixLang: true, enVoice: '', detect: 'quotes', minWords: 3 }, store.get('cfg', {}));
+  const cfg = Object.assign({ mixLang: true, enVoice: '', detect: 'quotes', minWords: 3, stVoice: 0, stSteps: 5 }, store.get('cfg', {}));
 
   let S = [];            // {text, page, el}
   let pageStart = [];    // Seite -> Index erster Satz
@@ -188,12 +197,23 @@ button.big{padding:10px 18px}
   /* ---------- Stimmen ---------- */
   // Neuronale Piper-Stimmen: laufen offline im Browser, Modell wird einmalig geladen und gespeichert
   const PIPER = {
+    'supertonic-3':          { engine: 'st', name: 'Supertonic – Deutsch & Englisch, gleiche Stimme', mb: 145 },
     'de_DE-thorsten-medium': { name: 'Thorsten – Deutsch, sehr natürlich', path: 'de/de_DE/thorsten/medium/de_DE-thorsten-medium.onnx', mb: 63 },
     'de_DE-kerstin-low':     { name: 'Kerstin – Deutsch, weiblich',        path: 'de/de_DE/kerstin/low/de_DE-kerstin-low.onnx',         mb: 63 }
   };
   const HF = 'https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/';
   const MODEL_CACHE = 'piper-models-v1';
   const piperCached = {};
+  // Supertonic 3 (int8): ein Modell für 31 Sprachen, Sprache wird pro Teilstück umgeschaltet
+  const ST_BASE = new URL('models/supertonic-3-int8/', location.href).href;
+  const ST_CACHE = 'supertonic-v1';
+  const ST_FILES = [['duration_predictor.int8.onnx', 3.7], ['text_encoder.int8.onnx', 36.4], ['vector_estimator.int8.onnx', 78.4],
+                    ['vocoder.int8.onnx', 26.0], ['tts.json', 0.01], ['unicode_indexer.bin', 0.26], ['voice.bin', 0.52]];
+  const ST_VOICES = ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'];
+  const isSt = () => { const id = piperId(); return !!(id && PIPER[id].engine === 'st'); };
+  // Tempo: Supertonic spricht selbst schneller/langsamer (0,7–2,0; 1,05 = normal), Rest über die Wiedergabe
+  const stSpeed = () => Math.max(0.7, Math.min(2.0, 1.05 * rate()));
+  const playRate = () => isSt() ? 1.05 * rate() / stSpeed() : rate();
 
   const NOVELTY = /^(Albert|Bad News|Bahh|Bells|Boing|Bubbles|Cellos|Good News|Jester|Organ|Superstar|Trinoids|Whisper|Wobble|Zarvox|Fred|Junior|Kathy|Ralph|Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley)\b/;
   function voiceRank(v) {
@@ -234,8 +254,11 @@ button.big{padding:10px 18px}
   }
   async function checkPiperCache() {
     try {
-      const c = await caches.open(MODEL_CACHE);
-      for (const id in PIPER) piperCached[id] = !!(await c.match(HF + PIPER[id].path));
+      const c = await caches.open(MODEL_CACHE), cs = await caches.open(ST_CACHE);
+      for (const id in PIPER) {
+        if (PIPER[id].engine === 'st') { let all = true; for (const [f] of ST_FILES) if (!(await cs.match(ST_BASE + f))) { all = false; break; } piperCached[id] = all; }
+        else piperCached[id] = !!(await c.match(HF + PIPER[id].path));
+      }
       refreshPiperLabels();
     } catch (e) {}
   }
@@ -261,13 +284,14 @@ button.big{padding:10px 18px}
   }
   // Englische Passagen umleiten? Nicht nötig, wenn die Hauptstimme selbst englisch ist.
   function enRoute() {
-    if (!cfg.mixLang || !enVoice()) return false;
+    if (!cfg.mixLang || isSt() || !enVoice()) return false;   // Supertonic liest Englisch selbst
     if (!piperId()) { const v = curVoice(); if (v && !isDe(v)) return false; }
     return true;
   }
   function engineFor(seg) {
+    if (isSt()) return { kind: 'piper', lang: seg.lang === 'en' ? 'en' : 'de' };
     if (seg.lang === 'en' && enRoute()) return { kind: 'sys', voice: enVoice() };
-    return piperId() ? { kind: 'piper' } : { kind: 'sys', voice: curVoice() };
+    return piperId() ? { kind: 'piper', lang: 'de' } : { kind: 'sys', voice: curVoice() };
   }
 
   loadVoices();
@@ -342,6 +366,7 @@ button.big{padding:10px 18px}
     const v = PIPER[id];
     const p = (async () => {
       try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
+      if (v.engine === 'st') { await startSupertonic(id, v); return; }
       const cfgBuf = await getModelFile(HF + v.path + '.json');
       const config = JSON.parse(new TextDecoder().decode(cfgBuf));
       const model = await getModelFile(HF + v.path, (got, total) => {
@@ -367,6 +392,40 @@ button.big{padding:10px 18px}
     return p;
   }
 
+  // Supertonic: Dateien einmalig in den Cache laden, der Worker liest sie von dort
+  async function startSupertonic(id, v) {
+    const c = await caches.open(ST_CACHE);
+    const total = ST_FILES.reduce((s, f) => s + f[1], 0); let done = 0;
+    for (const [f, mb] of ST_FILES) {
+      if (await c.match(ST_BASE + f)) { done += mb; continue; }
+      const r = await fetch(ST_BASE + f);
+      if (!r.ok) throw new Error('Download fehlgeschlagen (' + f + ', HTTP ' + r.status + ')');
+      const reader = r.body.getReader(), chunks = []; let got = 0;
+      for (;;) {
+        const { done: end, value } = await reader.read(); if (end) break;
+        chunks.push(value); got += value.length;
+        if (piper.id === id) setStatus(`Lade Stimme „Supertonic“ … ${Math.min(100, Math.round((done + got / 1e6) / total * 100))} %`);
+      }
+      if (piper.id !== id) throw new Error('abgebrochen');
+      await c.put(ST_BASE + f, new Response(new Blob(chunks)));
+      done += mb;
+    }
+    piperCached[id] = true; refreshPiperLabels();
+    setStatus('Stimme wird vorbereitet …');
+    const threads = self.crossOriginIsolated ? 2 : 1;   // 2 Kerne: am Handy schneller als 1 oder 4
+    const w = new Worker('lib/tts/supertonic-worker.js');
+    await new Promise((res, rej) => {
+      w.onmessage = e => { if (e.data.type === 'ready') { piper.sampleRate = e.data.sampleRate; piper.threads = e.data.threads; res(); } else if (e.data.type === 'error') rej(new Error(e.data.message)); };
+      w.onerror = e => rej(new Error(e.message || 'Worker konnte nicht starten'));
+      w.postMessage({ type: 'init', threads, modelBase: ST_BASE, cacheName: ST_CACHE });
+    });
+    if (piper.id !== id) { w.terminate(); throw new Error('abgebrochen'); }
+    w.onmessage = onWorkerMessage; w.onerror = null;
+    piper.worker = w; piper.ok = true;
+    setStatus(S.length ? `Stimme „Supertonic“ bereit (${piper.threads} Kern${piper.threads > 1 ? 'e' : ''}).` : '');
+    pump();
+  }
+
   function onWorkerMessage(e) {
     const m = e.data;
     inflight = null;
@@ -381,12 +440,12 @@ button.big{padding:10px 18px}
     waiters.delete(key);
     prune(); pump();
   }
-  function getAudio(key, text) {
+  function getAudio(key, text, lang) {
     const c = audioCache.get(key);
     if (typeof c === 'string') return Promise.resolve(c);
     if (c && c.error) return Promise.reject(new Error(c.error));
     return new Promise((res, rej) => {
-      if (!waiters.has(key)) waiters.set(key, { text, list: [] });
+      if (!waiters.has(key)) waiters.set(key, { text, lang, list: [] });
       waiters.get(key).list.push({ res, rej }); pump();
     });
   }
@@ -395,16 +454,20 @@ button.big{padding:10px 18px}
     for (const j of [idx, idx + 1, idx + 2]) {
       if (j < 0 || j >= S.length) continue;
       const segs = segsOf(j);
-      for (let k = 0; k < segs.length; k++) if (engineFor(segs[k]).kind === 'piper') yield [j + ':' + k, segs[k].speak];
+      for (let k = 0; k < segs.length; k++) {
+        const eng = engineFor(segs[k]);
+        if (eng.kind === 'piper' && /[\p{L}\d]/u.test(segs[k].speak)) yield [j + ':' + k, segs[k].speak, eng.lang];
+      }
     }
   }
   function pump() {   // immer nur ein Teilstück gleichzeitig berechnen
     if (inflight !== null || !piper.ok) return;
-    const cands = [...waiters].map(([k, w]) => [k, w.text]).concat([...neededKeys()]);
-    for (const [key, text] of cands) {
+    const cands = [...waiters].map(([k, w]) => [k, w.text, w.lang]).concat([...neededKeys()]);
+    for (const [key, text, lang] of cands) {
       if (!audioCache.has(key)) {
         inflight = { g: docGen, key };
-        piper.worker.postMessage({ type: 'synth', id: inflight, text });
+        piper.worker.postMessage({ type: 'synth', id: inflight, text, lang: lang || 'de',
+          sid: cfg.stVoice, steps: cfg.stSteps, speed: stSpeed() });   // Zusatzfelder ignoriert Piper
         return;
       }
     }
@@ -651,20 +714,20 @@ button.big{padding:10px 18px}
     synth.speak(u);
   }
   // Ein Teilstück mit der neuronalen Stimme sprechen
-  async function speakPiperSeg(key, text, alive, done, fail) {
+  async function speakPiperSeg(key, text, lang, alive, done, fail) {
     try { await ensurePiper(piperId()); }
     catch (e) { if (alive() && e.message !== 'abgebrochen') fail('Stimme konnte nicht geladen werden: ' + e.message, true); return; }
     if (!alive()) return;
     const slow = setTimeout(() => { if (alive()) setStatus('Erzeuge Sprache …'); }, 400);
     let url;
-    try { url = await getAudio(key, text); }
+    try { url = await getAudio(key, text, lang); }
     catch (e) { clearTimeout(slow); if (alive() && e.message !== 'abgebrochen') fail('Sprachausgabe fehlgeschlagen: ' + e.message, false); return; }
     clearTimeout(slow);
     if (!alive()) return;
     if ($('status').textContent === 'Erzeuge Sprache …') setStatus('');
     pump();
     player.src = url;
-    player.playbackRate = rate();
+    player.playbackRate = playRate();
     player.onended = () => { if (alive()) done(); };
     player.play().then(() => { errCount = 0; }).catch(err => {
       if (alive() && err && err.name === 'NotAllowedError') fail('Wiedergabe blockiert – bitte nochmal auf ▶ tippen.', true);
@@ -674,7 +737,7 @@ button.big{padding:10px 18px}
     if (!/[\p{L}\d]/u.test(seg.speak)) { done(); return; }
     const eng = engineFor(seg);
     if (eng.kind === 'sys') speakSys(seg.speak, eng.voice, alive, done, fail);
-    else speakPiperSeg(key, seg.speak, alive, done, fail);
+    else speakPiperSeg(key, seg.speak, eng.lang, alive, done, fail);
   }
 
   // Satz i ab Teilstück k vorlesen
@@ -743,7 +806,7 @@ button.big{padding:10px 18px}
     const segs = segment(SAMPLE);
     const run = k => {
       if (k >= segs.length || !alive()) return;
-      speakSeg(segs[k], 'preview:' + k + ':' + JSON.stringify(cfg), alive, () => run(k + 1), msg => setStatus(msg, true));
+      speakSeg(segs[k], 'preview:' + k + ':' + rate() + ':' + (piperId() || '') + ':' + JSON.stringify(cfg), alive, () => run(k + 1), msg => setStatus(msg, true));
     };
     run(0);
   }
@@ -796,11 +859,17 @@ button.big{padding:10px 18px}
   }
   function applyRate(restart) {
     store.set('rate', rate());
-    if (piperId()) player.playbackRate = rate();          // neuronale Stimme: sofort, ohne Neustart
+    if (isSt()) resynth();                                // Supertonic: Tempo steckt im erzeugten Audio → neu rechnen
+    else if (piperId()) player.playbackRate = rate();     // Piper: sofort, ohne Neustart
     else if (restart && playing) jump(idx);               // Systemstimme: Satz mit neuem Tempo neu beginnen
   }
+  // Vorberechnetes Audio verwerfen und den aktuellen Satz neu beginnen
+  function resynth() {
+    docGen++; dropAudio();
+    if (playing) { token++; startAt(idx); } else pump();
+  }
   $('rate').value = store.get('rate', 1); showRate();
-  $('rate').addEventListener('input', () => { showRate(); if (piperId()) player.playbackRate = rate(); });
+  $('rate').addEventListener('input', () => { showRate(); if (piperId() && !isSt()) player.playbackRate = rate(); });
   $('rate').addEventListener('change', () => applyRate(true));
   $('chips').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
@@ -838,9 +907,14 @@ button.big{padding:10px 18px}
   $('follow').addEventListener('change', e => store.set('follow', e.target.checked));
 
   /* ---------- Einstellungen ---------- */
-  function updateOptState() { for (const id of ['optEnVoice', 'optDetect', 'optMin']) $(id).disabled = !cfg.mixLang; }
+  function updateOptState() {
+    for (const id of ['optEnVoice', 'optDetect', 'optMin']) $(id).disabled = !cfg.mixLang;
+    $('optEnVoice').disabled = !cfg.mixLang || isSt();
+  }
+  ST_VOICES.forEach((n, i) => { const o = document.createElement('option'); o.value = i; o.textContent = (i < 5 ? 'Weiblich ' : 'Männlich ') + n; $('optStVoice').appendChild(o); });
   function openSettings() {
     $('optMix').checked = cfg.mixLang; $('optDetect').value = cfg.detect; $('optMin').value = String(cfg.minWords);
+    $('optStVoice').value = String(cfg.stVoice); $('optStSteps').value = String(cfg.stSteps);
     fillEnVoices(); $('optFollow').checked = $('follow').checked; updateOptState();
     $('sheet').hidden = false;
   }
@@ -860,6 +934,9 @@ button.big{padding:10px 18px}
   $('optDetect').addEventListener('change', e => { cfg.detect = e.target.value; saveCfg(true); });
   $('optMin').addEventListener('change', e => { cfg.minWords = +e.target.value; saveCfg(true); });
   $('optTest').addEventListener('click', preview);
+  const stChanged = () => { store.set('cfg', cfg); if (isSt()) resynth(); };
+  $('optStVoice').addEventListener('change', e => { cfg.stVoice = +e.target.value; stChanged(); });
+  $('optStSteps').addEventListener('change', e => { cfg.stSteps = +e.target.value; stChanged(); });
   $('optFollow').addEventListener('change', e => { $('follow').checked = e.target.checked; store.set('follow', e.target.checked); });
 
   const drop = $('drop');
@@ -882,7 +959,14 @@ button.big{padding:10px 18px}
   window.addEventListener('beforeunload', () => { if (synth) synth.cancel(); });
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js').then(async () => {
+      // Mehrkern-Rechnen braucht „cross-origin isolation“; die Header setzt der Service Worker.
+      // Beim allerersten Start (oder nach einem Update) einmal neu laden – aber nie mitten in der Nutzung.
+      if (self.crossOriginIsolated) { try { sessionStorage.removeItem('coiReload'); } catch (e) {} return; }
+      await navigator.serviceWorker.ready;
+      let n = 0; try { n = +sessionStorage.getItem('coiReload') || 0; } catch (e) {}
+      if (n < 1 && !S.length && !playing) { try { sessionStorage.setItem('coiReload', '1'); } catch (e) {} location.reload(); }
+    }).catch(() => {});
   }
 
   updateUI();
