@@ -1,5 +1,5 @@
 // Offline-Cache für den PDF Vorleser. Bei Änderungen an App-Dateien VERSION erhöhen.
-const VERSION = 'vorleser-v4';
+const VERSION = 'vorleser-v5';
 // Große Laufzeitdateien der neuronalen Stimme ändern sich praktisch nie → eigener Cache,
 // der bei App-Updates erhalten bleibt (nur bei neuer Engine-Version TTS_CACHE erhöhen).
 const TTS_CACHE = 'vorleser-tts-1';
@@ -22,8 +22,13 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;          // z. B. Modell-Download: direkt durchreichen
+  const scope = self.registration.scope;
+  if (url.href.startsWith(scope + 'test/')) return;         // Testseite verwaltet sich selbst
 
   if (req.mode === 'navigate') {
+    // nur die App-Startseite selbst cachen – andere Seiten unverändert durchreichen
+    const page = url.origin + url.pathname;
+    if (page !== scope && page !== scope + 'index.html') return;
     // Seite: erst Netz (für Updates), sonst Cache
     e.respondWith(fetch(req).then(r => {
       const copy = r.clone(); caches.open(VERSION).then(c => c.put('index.html', copy)); return r;

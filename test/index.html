@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Supertonic-Test</title>
+<style>
+:root{--bg:#f6f5f2;--surface:#fff;--text:#1c1c1e;--muted:#6c6c72;--border:#e2e0db;--accent:#2f6fed;--accent-ink:#fff;--ok:#1f8a4c;--warn:#b7791f;--err:#c0392b}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#131416;--surface:#1d1e21;--text:#ececef;--muted:#9a9aa3;--border:#2d2e33;--accent:#6f9cff;--accent-ink:#0b0d12;--ok:#4cc38a;--warn:#e0b04a;--err:#ff7b6b}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--text);font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+main{max-width:640px;margin:0 auto;padding:calc(16px + env(safe-area-inset-top)) 16px calc(32px + env(safe-area-inset-bottom))}
+h1{font-size:22px;margin:4px 0 4px}
+.lead{color:var(--muted);margin:0 0 16px;font-size:15px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.card h2{font-size:15px;margin:0 0 8px}
+.step{display:inline-block;min-width:22px;height:22px;border-radius:11px;background:var(--accent);color:var(--accent-ink);font-size:13px;text-align:center;line-height:22px;margin-right:6px}
+button,select{font:inherit;color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:9px 14px;cursor:pointer}
+button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+button:disabled{opacity:.45;cursor:default}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.muted{color:var(--muted);font-size:14px}
+.bar{height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin:10px 0 4px}
+.bar div{height:100%;width:0;background:var(--accent);transition:width .2s}
+dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0;font-size:14px}
+dt{color:var(--muted)}
+dd{margin:0}
+table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{text-align:left;padding:6px 4px;border-bottom:1px solid var(--border)}
+th{color:var(--muted);font-weight:500}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--err)}
+pre{white-space:pre-wrap;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:10px;margin:8px 0}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <h1>Supertonic-Test</h1>
+  <p class="lead">Prüft, ob die neuronale Stimme „Supertonic 3“ auf diesem Gerät schnell genug zum Vorlesen ist. Die Vorleser-App wird dabei nicht verändert.</p>
+
+  <section class="card">
+    <h2>Gerät</h2>
+    <dl id="device"></dl>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">1</span>Modell laden</h2>
+    <p class="muted" id="dlInfo">Einmalig ca. 145 MB – am besten im WLAN.</p>
+    <button id="dlBtn" class="primary">Modell laden</button>
+    <div class="bar"><div id="dlBar"></div></div>
+    <div class="muted" id="dlStatus"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">2</span>Geschwindigkeit messen</h2>
+    <p class="muted">Dauert etwa 1–3 Minuten. Bildschirm dabei anlassen und Safari im Vordergrund lassen.</p>
+    <button id="runBtn" class="primary" disabled>Messung starten</button>
+    <div class="muted" id="runStatus" style="margin-top:8px"></div>
+    <table id="results" hidden>
+      <thead><tr><th>Kerne</th><th>Schritte</th><th>Rechenzeit / Sprechdauer</th><th>Bewertung</th></tr></thead>
+      <tbody></tbody>
+    </table>
+    <p class="muted" id="legend" hidden>Unter 1 = schneller als gesprochen. Für flüssiges Vorlesen bei 1× sollte der Wert deutlich unter 1 liegen, bei 1,5× unter etwa 0,6.</p>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">3</span>Hörprobe</h2>
+    <p class="muted">„Im Paper heißt es: „The results clearly show a strong dependence on the laser intensity.“ Das bestätigt unsere Messung.“ – gleiche Stimme, Sprache pro Satzteil umgeschaltet.</p>
+    <div class="row">
+      <select id="voice" aria-label="Stimme"></select>
+      <button id="playBtn" disabled>▶ Abspielen</button>
+    </div>
+    <div class="muted" id="playStatus" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <h2><span class="step">4</span>Ergebnis</h2>
+    <pre id="summary">Noch keine Messung.</pre>
+    <div class="row">
+      <button id="copyBtn" disabled>Ergebnis kopieren</button>
+      <span class="muted" id="copyStatus"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Aufräumen</h2>
+    <p class="muted">Entfernt das heruntergeladene Testmodell wieder von diesem Gerät.</p>
+    <button id="clearBtn">Testdaten löschen</button> <span class="muted" id="clearStatus"></span>
+  </section>
+
+  <p class="muted"><a href="../">← Zur Vorleser-App</a></p>
+</main>
+
+<script>
+(async () => {
+  const $ = id => document.getElementById(id);
+
+  /* --- Mehrkern-Freischaltung über eigenen Service Worker (einmaliges Neuladen) --- */
+  if (!self.crossOriginIsolated && 'serviceWorker' in navigator && window.isSecureContext) {
+    try {
+      await navigator.serviceWorker.register('coi-sw.js', { scope: './' });
+      let tries = 0; try { tries = +sessionStorage.getItem('coiReload') || 0; } catch (e) {}
+      if (tries < 2) {
+        try { sessionStorage.setItem('coiReload', String(tries + 1)); } catch (e) {}
+        await navigator.serviceWorker.ready;
+        location.reload();
+        return;
+      }
+    } catch (e) {}
+  }
+  try { sessionStorage.removeItem('coiReload'); } catch (e) {}
+
+  const MODEL = new URL('model/', location.href).href;
+  const FILES = [['duration_predictor.int8.onnx', 3.7], ['text_encoder.int8.onnx', 36.4], ['vector_estimator.int8.onnx', 78.4],
+                 ['vocoder.int8.onnx', 26.0], ['tts.json', 0.01], ['unicode_indexer.bin', 0.26], ['voice.bin', 0.52]];
+  const TOTAL_MB = FILES.reduce((s, f) => s + f[1], 0);
+  const CACHE = 'supertonic-test-v1';
+  const isolated = self.crossOriginIsolated === true;
+  const cores = navigator.hardwareConcurrency || 1;
+  const THREADS = isolated ? [...new Set([1, 2, Math.min(4, cores)])].filter(t => t <= Math.max(1, cores)) : [1];
+  const STEPS = [5, 8];
+  const BENCH = 'Die Strahlqualität wird über die Beugungsmaßzahl M² charakterisiert; am 3. Mai 2026 lag sie bei 1,2.';
+  const MIXED = [['Im Paper heißt es:', 'de'], ['"The results clearly show a strong dependence on the laser intensity."', 'en'], ['Das bestätigt unsere Messung.', 'de']];
+  const results = []; let initSec = null;
+
+  /* --- Geräteinfo --- */
+  const ua = navigator.userAgent;
+  const ios = (ua.match(/OS (\d+)_(\d+)/) || [])[0];
+  const devInfo = [
+    ['System', ios ? 'iOS ' + ios.slice(3).replace('_', '.') : (navigator.platform || '–')],
+    ['Rechenkerne', String(cores)],
+    ['Mehrkern freigeschaltet', isolated ? 'ja' : 'nein (nur 1 Kern messbar)'],
+    ['WebGPU', 'gpu' in navigator ? 'vorhanden' : 'nicht vorhanden'],
+    ['Browser', ua.replace(/^Mozilla\/5\.0 /, '').slice(0, 120)]
+  ];
+  $('device').innerHTML = devInfo.map(([k, v]) => `<dt>${k}</dt><dd>${v.replace(/</g, '&lt;')}</dd>`).join('');
+
+  /* --- Schritt 1: Download in den Cache --- */
+  async function cachedCount() {
+    try { const c = await caches.open(CACHE); let n = 0; for (const [f] of FILES) if (await c.match(MODEL + f)) n++; return n; } catch (e) { return 0; }
+  }
+  async function refreshDl() {
+    const n = await cachedCount();
+    if (n === FILES.length) { $('dlBar').style.width = '100%'; $('dlStatus').textContent = 'Modell ist geladen ✓'; $('dlBtn').disabled = true; $('runBtn').disabled = false; $('playBtn').disabled = false; return true; }
+    return false;
+  }
+  $('dlBtn').addEventListener('click', async () => {
+    $('dlBtn').disabled = true;
+    try {
+      try { if (navigator.storage && navigator.storage.persist) await navigator.storage.persist(); } catch (e) {}
+      const c = await caches.open(CACHE); let doneMB = 0;
+      for (const [f, mb] of FILES) {
+        if (await c.match(MODEL + f)) { doneMB += mb; continue; }
+        const r = await fetch(MODEL + f); if (!r.ok) throw new Error(f + ': HTTP ' + r.status);
+        const reader = r.body.getReader(), chunks = []; let got = 0;
+        for (;;) {
+          const { done, value } = await reader.read(); if (done) break;
+          chunks.push(value); got += value.length;
+          const pct = Math.min(100, (doneMB + got / 1e6) / TOTAL_MB * 100);
+          $('dlBar').style.width = pct + '%'; $('dlStatus').textContent = `${Math.round(doneMB + got / 1e6)} / ${Math.round(TOTAL_MB)} MB`;
+        }
+        await c.put(MODEL + f, new Response(new Blob(chunks)));
+        doneMB += mb;
+      }
+      await refreshDl();
+    } catch (e) { $('dlStatus').textContent = 'Fehler beim Laden: ' + e.message; $('dlBtn').disabled = false; }
+  });
+
+  /* --- Worker-Hilfen --- */
+  function startWorker(threads) {
+    const w = new Worker('st-worker.js');
+    let seq = 0; const pending = new Map();
+    w.onmessage = e => { const m = e.data, p = pending.get(m.type === 'ready' ? 'init' : m.id); if (!p) return; pending.delete(m.type === 'ready' ? 'init' : m.id); m.type === 'error' ? p.rej(new Error(m.message)) : p.res(m); };
+    w.onerror = e => { for (const p of pending.values()) p.rej(new Error(e.message || 'Worker-Fehler')); pending.clear(); };
+    const call = (key, msg) => new Promise((res, rej) => { pending.set(key, { res, rej }); w.postMessage(msg); });
+    return {
+      init: () => call('init', { type: 'init', threads, modelBase: MODEL, cacheName: CACHE }),
+      synth: (text, lang, sid, steps) => { const id = ++seq; return call(id, { type: 'synth', id, text, lang, sid, steps, speed: 1.05 }); },
+      close: () => w.terminate()
+    };
+  }
+  let wakeLock = null;
+  async function awake(on) { try { if (on && 'wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); else if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; } } catch (e) {} }
+  const verdict = r => r < 0.6 ? ['flüssig, auch bei 1,5×', 'ok'] : r < 0.85 ? ['flüssig bei 1×', 'ok'] : r < 1 ? ['knapp – evtl. Pausen', 'warn'] : ['zu langsam', 'bad'];
+
+  /* --- Schritt 2: Messung --- */
+  $('runBtn').addEventListener('click', async () => {
+    $('runBtn').disabled = true; $('playBtn').disabled = true; results.length = 0;
+    const tbody = $('results').querySelector('tbody'); tbody.innerHTML = ''; $('results').hidden = false; $('legend').hidden = false;
+    await awake(true);
+    try {
+      for (const t of THREADS) {
+        $('runStatus').textContent = `${t} Kern${t > 1 ? 'e' : ''}: Modell wird vorbereitet …`;
+        const w = startWorker(t);
+        try {
+          const r0 = await w.init(); if (initSec === null) initSec = r0.initMs / 1000;
+          await w.synth('Kurzer Testsatz.', 'de', 0, 2);   // Aufwärmen
+          for (const s of STEPS) {
+            $('runStatus').textContent = `${t} Kern${t > 1 ? 'e' : ''}, ${s} Schritte: rechne …`;
+            const a = await w.synth(BENCH, 'de', 0, s);
+            const rtf = a.ms / 1000 / a.audioSec, [txt, cls] = verdict(rtf);
+            results.push({ threads: t, steps: s, rtf, audio: a.audioSec, real: r0.threads });
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${t}</td><td>${s}</td><td>${rtf.toFixed(2)}</td><td class="${cls}">${txt}</td>`;
+            tbody.appendChild(tr);
+          }
+        } finally { w.close(); }
+      }
+      $('runStatus').textContent = 'Messung fertig ✓';
+    } catch (e) { $('runStatus').textContent = 'Fehler: ' + e.message; }
+    await awake(false);
+    writeSummary();
+    $('runBtn').disabled = false; $('playBtn').disabled = false;
+  });
+
+  /* --- Schritt 3: Hörprobe --- */
+  ['F1', 'F2', 'F3', 'F4', 'F5', 'M1', 'M2', 'M3', 'M4', 'M5'].forEach((n, i) => {
+    const o = document.createElement('option'); o.value = i; o.textContent = (i < 5 ? 'Weiblich ' : 'Männlich ') + n; $('voice').appendChild(o);
+  });
+  const audio = new Audio();
+  function wavBlob(pcm, sr) {
+    const n = pcm.length, b = new ArrayBuffer(44 + n * 2), v = new DataView(b), w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    for (let i = 0, p = 44; i < n; i++, p += 2) { const s = Math.max(-1, Math.min(1, pcm[i])); v.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+    return new Blob([b], { type: 'audio/wav' });
+  }
+  let playWorker = null, playThreads = 0;
+  $('playBtn').addEventListener('click', async () => {
+    audio.src = URL.createObjectURL(wavBlob(new Float32Array(800), 8000)); audio.play().catch(() => {});   // iOS: Audio im Tipp freischalten
+    $('playBtn').disabled = true;
+    const best = results.length ? results.filter(r => r.steps === 8).sort((a, b) => a.rtf - b.rtf)[0] : null;
+    const threads = best ? best.threads : (isolated ? Math.min(2, cores) : 1);
+    const steps = best && best.rtf > 0.85 ? 5 : 8;
+    try {
+      if (!playWorker || playThreads !== threads) {
+        if (playWorker) playWorker.close();
+        $('playStatus').textContent = 'Modell wird vorbereitet …';
+        playWorker = startWorker(threads); playThreads = threads; await playWorker.init();
+      }
+      $('playStatus').textContent = 'Sprache wird erzeugt …';
+      const sid = +$('voice').value, parts = []; let sr = 44100; const t0 = performance.now(); let dur = 0;
+      for (const [text, lang] of MIXED) {
+        const a = await playWorker.synth(text, lang, sid, steps); sr = a.sr; dur += a.audioSec;
+        parts.push(a.pcm, new Float32Array(Math.round(0.12 * sr)));
+      }
+      const all = new Float32Array(parts.reduce((s, p) => s + p.length, 0)); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+      audio.src = URL.createObjectURL(wavBlob(all, sr));
+      await audio.play();
+      $('playStatus').textContent = `Erzeugt in ${((performance.now() - t0) / 1000).toFixed(1)} s für ${dur.toFixed(1)} s Sprache (${threads} Kern${threads > 1 ? 'e' : ''}, ${steps} Schritte).`;
+    } catch (e) { $('playStatus').textContent = 'Fehler: ' + e.message; }
+    $('playBtn').disabled = false;
+  });
+
+  /* --- Schritt 4: Ergebnis --- */
+  function writeSummary() {
+    const lines = ['Supertonic-Test ' + new Date().toLocaleString('de-DE'), ...devInfo.slice(0, 4).map(([k, v]) => `${k}: ${v}`)];
+    if (initSec !== null) lines.push(`Modell vorbereiten (aus Speicher): ${initSec.toFixed(1)} s`);
+    lines.push('', 'Kerne | Schritte | Rechenzeit/Sprechdauer');
+    for (const r of results) lines.push(`${r.threads} | ${r.steps} | ${r.rtf.toFixed(2)} (${verdict(r.rtf)[0]})`);
+    lines.push('', 'Browser: ' + ua);
+    $('summary').textContent = lines.join('\n'); $('copyBtn').disabled = !results.length;
+  }
+  $('copyBtn').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText($('summary').textContent); $('copyStatus').textContent = 'Kopiert ✓'; }
+    catch (e) { $('copyStatus').textContent = 'Kopieren nicht möglich – bitte Screenshot machen.'; }
+  });
+
+  $('clearBtn').addEventListener('click', async () => {
+    try { await caches.delete(CACHE); } catch (e) {}
+    $('clearStatus').textContent = 'Gelöscht ✓'; $('dlBtn').disabled = false; $('dlBar').style.width = '0'; $('dlStatus').textContent = '';
+    $('runBtn').disabled = true; $('playBtn').disabled = true;
+  });
+
+  refreshDl();
+})();
+</script>
+</body>
+</html>
